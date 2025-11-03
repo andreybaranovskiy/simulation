@@ -4,7 +4,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Import map for Three.js + addons -->
   <script type="importmap">
   {
     "imports": {
@@ -14,8 +13,7 @@
   }
   </script>
 
-  <title>Three.js Road + Port GLB + Timeline</title>
-
+  <title>Three.js Road + Port GLB + Timeline (No Object Rotation)</title>
   <style>
     html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1020; color:#e8eefc; }
     #app { display: grid; grid-template-rows: auto auto 1fr; height: 100%; }
@@ -41,6 +39,7 @@
     #legend { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .chip { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; background:#16204a; border:1px solid #21306a; }
     .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+    .titlechip { font-weight:600; color:#cfe0ff; border-color:#3a52c5; background:#19245a; }
     .sep { width:1px; height:18px; background:#243068; margin:0 6px; }
     code { background:#0f1739; padding:3px 6px; border-radius:6px; border:1px solid #243068; }
     .hidden { display:none !important; }
@@ -59,81 +58,91 @@
   </style>
 </head>
 <body>
-  <div id="app">
-    <header>
-      <button class="btn" id="playBtn">▶ Play</button>
-      <button class="btn" id="pauseBtn" disabled>⏸ Pause</button>
-      <button class="btn" id="resetBtn">⟲ Reset</button>
+<div id="app">
+  <header>
 
-      <div class="sep"></div>
-      <div class="row">
-        <span class="label">Speed</span>
-        <input type="range" id="speedSlider" min="0.1" max="10" value="1" step="0.1" />
-        <span id="speedLabel">1.0×</span>
-      </div>
+    <button class="btn" id="playBtn">▶ Play</button>
+    <button class="btn" id="pauseBtn" disabled>⏸ Pause</button>
+    <button class="btn" id="resetBtn">⟲ Reset</button>
 
-      <div class="sep"></div>
-      <div class="row">
-        <span class="label">Time</span>
-        <span id="timeLabel">0.0s</span>
-      </div>
-
-      <div class="spacer"></div>
-
-      <div class="row">
-        <span class="label">Follow</span>
-        <select id="truckSelect" class="btn" style="padding:6px 10px"></select>
-        <button class="btn" id="freeCamBtn">Free</button>
-        <button class="btn" id="legendBtn">Legend</button>
-      </div>
-
-      <div class="sep"></div>
-      <div class="row">
-        <button class="btn" id="loadBtn">JSON/CSV</button>
-        <input type="file" id="fileInput" accept=".json,.csv" style="display:none" />
-        <button class="btn" id="loadPortBtn">GLB</button>
-        <input type="file" id="portInput" accept=".glb,.gltf" style="display:none" />
-        <span class="label"></span>
-      </div>
-
-      <div class="sep"></div>
-      <!-- GLB controls -->
-      <div class="row">
-        <span class="label">GLB Yaw</span>
-        <input type="range" id="glbYaw" min="-180" max="180" step="1" value="0" />
-        <span id="glbYawLabel" class="label">0°</span>
-
-        <span class="label" style="margin-left:8px">Opacity</span>
-        <input type="range" id="glbOpacity" min="0" max="1" step="0.01" value="1" />
-        <span id="glbOpacityLabel" class="label">1.00</span>
-      </div>
-    </header>
-
-    <!-- Timeline bar -->
-    <div id="timelineBar">
-      <div id="tlBtns" class="row">
-        <button class="btn" id="tlHome" title="Go to start (Home)">⟲ 0</button>
-        <button class="btn" id="tlBack" title="Step backward 1s (Shift=5s, Alt=0.1s)">⏮ −1s</button>
-        <button class="btn" id="tlFwd" title="Step forward 1s (Shift=5s, Alt=0.1s)">⏭ +1s</button>
-        <button class="btn toggle" id="tlLoop" title="Toggle loop (L)">Loop</button>
-      </div>
-      <input id="timeline" type="range" min="0" max="0" step="0.01" value="0" />
-      <div id="tlTimes" class="label"><span id="tlNow">00:00.0</span> / <span id="tlDur">00:00.0</span></div>
+    <div class="sep"></div>
+    <div class="row">
+      <span class="label">Speed</span>
+      <input type="range" id="speedSlider" min="0.1" max="10" value="1" step="0.1" />
+      <span id="speedLabel">1.0×</span>
     </div>
 
-    <div id="canvas-wrap">
-      <div id="overlay">
-        <div id="legend"></div>
-        <div style="margin-top:6px" class="label">
-          API: <code>window.loadRoad(points,{width})</code> &amp; <code>window.loadTracks(tracks)</code>.
-          JSON: <code>{road:{points,width}, tracks:[...]}</code>.
-          CSV: road as <code>x,y,z</code>, tracks as <code>id,t,x,y,z</code>.
-        </div>
+    <div class="sep"></div>
+    <div class="row">
+      <span class="label">Time</span>
+      <span id="timeLabel">0.0s</span>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="row">
+      <span class="label">Follow</span>
+      <select id="truckSelect" class="btn" style="padding:6px 10px"></select>
+      <button class="btn" id="freeCamBtn">Free</button>
+      <button class="btn" id="legendBtn">Legend</button>
+    </div>
+
+    <div class="sep"></div>
+    <div class="row">
+      <button class="btn" id="loadBtn">JSON/CSV</button>
+      <input type="file" id="fileInput" accept=".json,.csv" style="display:none" />
+      <button class="btn" id="loadPortBtn">GLB</button>
+      <input type="file" id="portInput" accept=".glb,.gltf" style="display:none" />
+      <span class="label"></span>
+    </div>
+
+    <div class="sep"></div>
+    <!-- GLB controls -->
+    <div class="row">
+      <span class="label">GLB Yaw</span>
+      <input type="range" id="glbYaw" min="-180" max="180" step="1" value="0" />
+      <span id="glbYawLabel" class="label">0°</span>
+
+      <span class="label" style="margin-left:8px">Pitch</span>
+      <input type="range" id="glbPitch" min="-90" max="90" step="1" value="0" />
+      <span id="glbPitchLabel" class="label">0°</span>
+
+      <span class="label" style="margin-left:8px">Scale</span>
+      <input type="range" id="glbScale" min="0.1" max="2" step="0.01" value="1" />
+      <span id="glbScaleLabel" class="label">1.00×</span>
+
+      <span class="label" style="margin-left:8px">Opacity</span>
+      <input type="range" id="glbOpacity" min="0" max="1" step="0.01" value="1" />
+      <span id="glbOpacityLabel" class="label">1.00</span>
+    </div>
+  </header>
+
+  <!-- Timeline bar -->
+  <div id="timelineBar">
+    <div id="tlBtns" class="row">
+      <button class="btn" id="tlHome" title="Go to start (Home)">⟲ 0</button>
+      <button class="btn" id="tlBack" title="Step backward 1s (Shift=5s, Alt=0.1s)">⏮ −1s</button>
+      <button class="btn" id="tlFwd"  title="Step forward 1s (Shift=5s, Alt=0.1s)">⏭ +1s</button>
+      <button class="btn toggle" id="tlLoop" title="Toggle loop (L)">Loop</button>
+    </div>
+    <input id="timeline" type="range" min="0" max="0" step="0.01" value="0" />
+    <div id="tlTimes" class="label"><span id="tlNow">00:00.0</span> / <span id="tlDur">00:00.0</span></div>
+  </div>
+
+  <div id="canvas-wrap">
+    <div id="overlay">
+      <div id="legend"></div>
+      <div style="margin-top:6px" class="label">
+        API: <code>window.loadRoad(points,{width})</code> & <code>window.loadTracks(tracks)</code> or <code>window.loadAnimationJSON(json)</code>.<br/>
+        JSON (classic): <code>{road:{points,width}, tracks:[...]}</code>. CSV: road <code>x,y,z</code>, tracks <code>id,t,x,y,z</code>.<br/>
+        JSON (animation): <code>{animation,{objects,transition}}</code>. (Note: <em>rotation transitions are ignored</em>.)
       </div>
     </div>
   </div>
+</div>
 
-  <!-- Your module -->
-  <script type="module" src="src/main.js"></script>
+<script type="module" src="src/main.js">
+
+</script>
 </body>
 </html>
