@@ -15,6 +15,7 @@
 
   <title>3D Simlant - JSON + GLB </title>
   <style>
+    
     html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1020; color:#e8eefc; }
     #app { display: grid; grid-template-rows: auto auto 1fr; height: 100%; }
     header { padding: 10px 14px; display:flex; gap:10px; align-items:center; border-bottom:1px solid #1c2440; background:#0f1430; position:sticky; top:0; z-index:2; overflow-x:auto; white-space:nowrap; }
@@ -35,9 +36,45 @@
     #tlTimes { min-width: 160px; text-align:right; font-variant-numeric: tabular-nums; }
     #tlBtns .btn { padding:6px 10px; }
 
-    #overlay { position:absolute; left:12px; bottom:12px; background:rgba(8,12,32,0.6); border:1px solid #243068; border-radius:10px; padding:8px 12px; font-size:12px; color:#cfe0ff; max-width: 42vw; max-height: 10vh; overflow: auto; backdrop-filter: blur(6px); }
+    #overlay {
+  position:absolute;
+  left:12px;
+  bottom:12px;
+  background:rgba(8,12,32,0.6);
+  border:1px solid #243068;
+  border-radius:10px;
+  padding:6px 10px;
+  font-size:12px;
+  color:#cfe0ff;
+  max-width: 40vw;
+
+  /* Compact by default */
+  max-height: 2em;
+  overflow: hidden;
+
+  backdrop-filter: blur(6px);
+  transition: max-height 0.2s ease, padding 0.2s ease;
+}
+
+/* When hovering the legend/overlay: expand it */
+#overlay:hover {
+  max-height: 40vh;
+  overflow: auto;
+  padding:8px 12px;
+}
+
     #legend { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-    .chip { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; background:#16204a; border:1px solid #21306a; }
+    .chip {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:4px 8px; border-radius:999px;
+    background:#16204a; border:1px solid #21306a;
+    cursor:pointer;                 /* <-- add this */
+    user-select:none;               /* nice UX */
+    transition:transform .06s ease;
+  }
+  .chip:hover { transform: translateY(-1px); } /* optional */
+  .titlechip { font-weight:600; color:#cfe0ff; border-color:#3a52c5; background:#19245a; cursor:default; }
+
     .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
     .titlechip { font-weight:600; color:#cfe0ff; border-color:#3a52c5; background:#19245a; }
     .sep { width:1px; height:18px; background:#243068; margin:0 6px; }
@@ -133,13 +170,13 @@
     <div id="overlay">
       <div id="legend"></div>
       <div style="margin-top:6px" class="label">
-        API: <code>window.loadRoad(points,{width})</code> & <code>window.loadTracks(tracks)</code> or <code>window.loadAnimationJSON(json)</code>.<br/>
+        
       </div>
     </div>
   </div>
 </div>
 
-<script type="module" src="src/main.js?v=1.1">
+<script type="module" src="src/main.js?v=1.3">
 
 </script>
 </body>

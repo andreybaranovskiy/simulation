@@ -316,6 +316,37 @@ const overlayEl = document.getElementById('overlay');
 const legendEl = document.getElementById('legend');
 const truckSelect = document.getElementById('truckSelect');
 
+function focusCameraOnId(id, {hideLegend=true, instant=true} = {}) {
+  if (!registry.has(id)) return;
+
+  // Switch follow to this id and reflect in the dropdown
+  followId = id;
+  if (truckSelect) truckSelect.value = id;
+
+  const rec = registry.get(id);
+  const pos = rec.mesh.position.clone();
+  const forward = rec.lastForward.lengthSq() > 0 ? rec.lastForward : new THREE.Vector3(1,0,0);
+
+  // Where the follow-cam normally sits
+  const desiredPos = pos.clone()
+    .addScaledVector(forward, -FOLLOW_DIST)
+    .add(new THREE.Vector3(0, FOLLOW_HEIGHT, 0));
+  const lookTarget = new THREE.Vector3(pos.x, pos.y + 1.5, pos.z);
+
+  if (instant) {
+    camera.position.copy(desiredPos);
+    controls.target.copy(lookTarget);
+  } else {
+    // A little nudge; the render loop lerps further
+    camera.position.lerp(desiredPos, 0.35);
+    controls.target.lerp(lookTarget, 0.35);
+  }
+  controls.update();
+
+  if (hideLegend) setLegendVisible(false);
+}
+
+
 function refreshTruckSelect(){
   const prev = truckSelect.value;
   truckSelect.innerHTML = '';
@@ -329,6 +360,34 @@ function refreshTruckSelect(){
   }
   const hasPrev = [...registry.keys()].includes(prev);
   truckSelect.value = hasPrev ? prev : '';
+}
+function focusCameraOnce(id, {instant=true, keepLegend=false} = {}) {
+  const rec = registry.get(id);
+  if (!rec) return;
+
+  // Always release follow
+  followId = null;
+  if (truckSelect) truckSelect.value = '';
+
+  const pos = rec.mesh.position.clone();
+  const forward = rec.lastForward.lengthSq() > 0 ? rec.lastForward : new THREE.Vector3(1,0,0);
+
+  // Same offset the follow-cam uses, but applied once
+  const desiredPos = pos.clone()
+    .addScaledVector(forward, -FOLLOW_DIST)
+    .add(new THREE.Vector3(0, FOLLOW_HEIGHT, 0));
+  const lookTarget = new THREE.Vector3(pos.x, pos.y + 1.5, pos.z);
+
+  if (instant) {
+    camera.position.copy(desiredPos);
+    controls.target.copy(lookTarget);
+  } else {
+    camera.position.lerp(desiredPos, 0.35);
+    controls.target.lerp(lookTarget, 0.35);
+  }
+  controls.update();
+
+
 }
 
 function updateLegend() {
@@ -344,11 +403,17 @@ function updateLegend() {
     const dot = document.createElement('span'); dot.className='dot';
     dot.style.background = '#' + rec.color.toString(16).padStart(6,'0');
     const txt = document.createElement('span'); txt.textContent = id;
+
+    // Focus once, then stay in Free mode
+    chip.addEventListener('click', () => focusCameraOnce(id));
+
     chip.appendChild(dot); chip.appendChild(txt);
     legendEl.appendChild(chip);
   }
-  refreshTruckSelect();
+  refreshTruckSelect(); // will show '' (Free) after focusing
 }
+
+
 
 function setLegendVisible(v){ overlayEl.classList.toggle('hidden', !v); }
 
