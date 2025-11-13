@@ -8,7 +8,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const FOLLOW_DIST = 12;
 const FOLLOW_HEIGHT = 4;
-const PORT_URL = './port.glb';      // auto-load if present
+const PORT_URL = './port.glb';      // auto-load if present (GLB)
 const PORT_TARGET_SIZE = 10000;     // fit longest axis to this size
 
 /* ========================
@@ -40,12 +40,9 @@ scene.add(dir);
 function resolveColor(input, fallback = 0x8888ff) {
   const c = new THREE.Color();
   try {
-    if (input === undefined || input === null || input === '') {
-      c.set(fallback);
-    } else {
-      c.set(input); // accepts names, hex, rgb(), numbers
-    }
-  } catch (e) {
+    if (input === undefined || input === null || input === '') c.set(fallback);
+    else c.set(input); // accepts names, hex, rgb(), numbers
+  } catch {
     c.set(fallback);
   }
   return c;
@@ -55,48 +52,85 @@ function makeTruck(color = 0xff6655) {
   const g = new THREE.Group();
   const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(4.5, 2, 2.5), bodyMat);
-  body.position.y = 1.2;
-  g.add(body);
+  body.position.y = 1.2; g.add(body);
 
   const cabColor = (typeof color === 'number') ? ((color & 0xfefefe) ^ 0x222222) : 0xffffff;
   const cab = new THREE.Mesh(
     new THREE.BoxGeometry(2, 1.6, 2.4),
     new THREE.MeshStandardMaterial({ color: cabColor, roughness: 0.4 })
   );
-  cab.position.set(-2.4, 1.5, 0);
-  g.add(cab);
+  cab.position.set(-2.4, 1.5, 0); g.add(cab);
   return g;
 }
 
 /* ========================
-   Port GLB (replaces ground)
+   Environment (GLB or 2D PNG/JPG on plane)
 ======================== */
 const gltfLoader = new GLTFLoader();
 const draco = new DRACOLoader();
 draco.setDecoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/');
 gltfLoader.setDRACOLoader(draco);
 
-let portRoot = null;
-let portYawRad = 0;      // radians
-let portPitchRad = 0;    // radians (vertical)
-let portOpacity = 1.0;
-let portUserScale = 1.0; // extra user scale (multiplies auto-fit)
+const texLoader = new THREE.TextureLoader();
+
+let envRoot = null;       // current environment node (GLB or plane group)
+let envYawRad = 0;        // radians
+let envPitchRad = 0;      // radians
+let envOpacity = 1.0;
+let envUserScale = 1.0;   // multiplies auto-fit
 let animationTitle = '';
 
-async function loadPort(url){
+/** GLB loader */
+async function loadPortGLB(url){
   return new Promise((resolve,reject)=>{
     gltfLoader.load(url, (gltf)=>{
       const root = gltf.scene || gltf.scenes?.[0];
       if (!root) return reject(new Error('No scene in GLB'));
       fitObjectUniform(root, PORT_TARGET_SIZE);
       root.userData.baseScale = root.scale.x || 1;
-      applyPortAppearance(root);
+      applyEnvAppearance(root);
       resolve(root);
     }, undefined, reject);
   });
 }
 
-// Fit model so its largest axis equals target and sits at y=0
+/** PNG/JPG loader -> plane at y=0, facing up (flat map) */
+async function loadPortPNG(url){
+  return new Promise((resolve, reject)=>{
+    texLoader.load(url, (tex)=>{
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy?.() || 8);
+
+      const iw = tex.image?.naturalWidth || tex.image?.width || 1024;
+      const ih = tex.image?.naturalHeight || tex.image?.height || 1024;
+      const longest = Math.max(iw, ih);
+
+      // Plane in "pixel units", then auto-fit scale applied to group
+      const geo = new THREE.PlaneGeometry(iw, ih, 1, 1);
+      const mat = new THREE.MeshBasicMaterial({
+        map: tex,
+        transparent: true,
+        opacity: 1.0,
+        depthWrite: true
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2; // lay flat
+      mesh.position.y = 0.0;
+
+      const group = new THREE.Group();
+      group.add(mesh);
+
+      const s = (PORT_TARGET_SIZE / longest);
+      group.scale.setScalar(s);
+      group.userData.baseScale = s;
+
+      applyEnvAppearance(group);
+      resolve(group);
+    }, undefined, reject);
+  });
+}
+
+/** Fit GLB model so its largest axis = PORT_TARGET_SIZE and sits roughly at y=0 */
 function fitObjectUniform(obj, targetLongest=100){
   const box = new THREE.Box3().setFromObject(obj);
   const size = new THREE.Vector3(); box.getSize(size);
@@ -108,31 +142,49 @@ function fitObjectUniform(obj, targetLongest=100){
   obj.scale.setScalar(s);
 }
 
-// Apply yaw + pitch + opacity + scale to GLB
-function applyPortAppearance(root){
+/** Apply yaw + pitch + opacity + scale to envRoot (GLB or plane) */
+function applyEnvAppearance(root){
   if (!root) return;
   const base = root.userData.baseScale || 1;
-  root.scale.setScalar(base * portUserScale);
-  root.rotation.set(portPitchRad, portYawRad, 0);
-  root.traverse(n=>{
+  root.scale.setScalar(base * envUserScale);
+  root.rotation.set(envPitchRad, envYawRad, 0);
+
+  root.traverse?.(n=>{
     if (n.isMesh) {
       const mats = Array.isArray(n.material) ? n.material : [n.material];
       mats.forEach(m=>{
         if (!m) return;
-        m.transparent = portOpacity < 1.0 || m.transparent;
-        m.opacity = portOpacity;
-        m.depthWrite = portOpacity >= 1.0;
+        m.transparent = envOpacity < 1.0 || m.transparent;
+        m.opacity = envOpacity;
+        m.depthWrite = envOpacity >= 1.0;
       });
     }
   });
+
+  // Simple plane group material toggle
+  if (root.isGroup && root.children?.[0]?.material) {
+    const m = root.children[0].material;
+    m.transparent = envOpacity < 1.0 || m.transparent;
+    m.opacity = envOpacity;
+    m.depthWrite = envOpacity >= 1.0;
+  }
 }
 
-// Try autoload port.glb; if missing, skip
-loadPort(PORT_URL).then(root=>{
-  portRoot = root;
-  scene.add(portRoot);
-  console.log('Port GLB loaded:', PORT_URL);
-}).catch(()=>console.log('No port.glb found (skipping ground).'));
+/** Replace current environment with new root (GLB or plane) */
+function setEnvironment(newRoot){
+  if (envRoot) scene.remove(envRoot);
+  envRoot = newRoot;
+  if (envRoot) {
+    scene.add(envRoot);
+    applyEnvAppearance(envRoot);
+  }
+}
+
+/** Autoload GLB if present (PNG/JPG is user-provided) */
+fetch(PORT_URL, { method: 'HEAD' })
+  .then(res => { if (res.ok) return loadPortGLB(PORT_URL); throw 0; })
+  .then(root => { setEnvironment(root); console.log('Environment GLB loaded:', PORT_URL); })
+  .catch(()=> console.log('No port.glb found (environment not autoloaded).'));
 
 /* ========================
    Road ribbon from curve (legacy)
@@ -235,7 +287,7 @@ let loopOn = false;
 const registry = new Map(); // id -> { mesh, color, keyframes: [{t,pos,quat}], tMin, tMax, lastPos, lastForward }
 
 /* ========================
-   Interpolation (position-only use)
+   Interpolation (pos only in legacy loadTracks)
 ======================== */
 function lerp(a,b,t){ return a+(b-a)*t; }
 
@@ -255,11 +307,11 @@ function interpolatePR(kfs, t) {
   const f = (t - A.t) / (B.t - A.t);
   return {
     pos: new THREE.Vector3( lerp(A.pos.x, B.pos.x, f), lerp(A.pos.y, B.pos.y, f), lerp(A.pos.z, B.pos.z, f) ),
-    quat: A.quat.clone() // unused; kept for structure
+    quat: A.quat.clone() // (legacy loadTracks not rotating)
   };
 }
 
-/* ========== Legend & UI ========== */
+/* ========== Legend & UI references ========== */
 const overlayEl = document.getElementById('overlay');
 const legendEl = document.getElementById('legend');
 const truckSelect = document.getElementById('truckSelect');
@@ -287,37 +339,13 @@ function updateLegend() {
     tchip.textContent = animationTitle;
     legendEl.appendChild(tchip);
   }
-  const items = [...registry.entries()];
-  const MAX = 12;
-  const renderChip = (id, colorHex) => {
+  for (const [id, rec] of registry) {
     const chip = document.createElement('div'); chip.className='chip';
     const dot = document.createElement('span'); dot.className='dot';
-    dot.style.background = '#' + colorHex.toString(16).padStart(6,'0');
+    dot.style.background = '#' + rec.color.toString(16).padStart(6,'0');
     const txt = document.createElement('span'); txt.textContent = id;
     chip.appendChild(dot); chip.appendChild(txt);
-    return chip;
-  };
-  for (let i=0; i<Math.min(items.length, MAX); i++){
-    const [id, rec] = items[i];
-    legendEl.appendChild(renderChip(id, rec.color));
-  }
-  const remaining = items.length - MAX;
-  if (remaining > 0) {
-    const more = document.createElement('button');
-    more.className = 'btn';
-    more.textContent = `+${remaining} more`;
-    more.style.padding = '4px 8px';
-    more.addEventListener('click', () => {
-      legendEl.innerHTML = '';
-      if (animationTitle){
-        const tchip = document.createElement('div');
-        tchip.className = 'chip titlechip';
-        tchip.textContent = animationTitle;
-        legendEl.appendChild(tchip);
-      }
-      for (const [id, rec] of items) legendEl.appendChild(renderChip(id, rec.color));
-    });
-    legendEl.appendChild(more);
+    legendEl.appendChild(chip);
   }
   refreshTruckSelect();
 }
@@ -354,7 +382,7 @@ function updateTimelineMax(){
 function nudge(dt){ setSimTime(simTime + dt); }
 
 /* ========================
-   Public APIs (legacy)
+   Public APIs (legacy tracks)
 ======================== */
 window.loadTracks = function(tracks) {
   for (const [, rec] of registry) scene.remove(rec.mesh);
@@ -374,24 +402,23 @@ window.loadTracks = function(tracks) {
   simEnd = Math.max(0, globalMax - globalMin);
   updateTimelineMax();
 
-  // meshes
   for (const t of tracks) {
     const sorted = [...t.keyframes].sort((a,b)=>a.t-b.t);
     if (!sorted.length) continue;
     const kfs = sorted.map(k=>{
       const pos = new THREE.Vector3(+k.x, +(k.y||0), +k.z);
-      return { t:+k.t - globalMin, pos, quat:new THREE.Quaternion() }; // quat unused
+      return { t:+k.t - globalMin, pos, quat:new THREE.Quaternion() };
     });
     const color = 0x6bafff;
     const mesh = makeTruck(color);
-    mesh.quaternion.identity(); // freeze rotation
+    mesh.quaternion.identity();
     scene.add(mesh);
     registry.set(String(t.id), {
       mesh, color,
       keyframes: kfs,
       tMin: kfs[0].t, tMax: kfs[kfs.length-1].t,
       lastPos: kfs[0].pos.clone(),
-      lastForward: new THREE.Vector3(1,0,0) // +X default
+      lastForward: new THREE.Vector3(1,0,0)
     });
   }
 
@@ -402,7 +429,6 @@ window.loadTracks = function(tracks) {
 
   updateLegend();
 
-  // initial pose (no rotation)
   for (const [, rec] of registry) {
     const a = interpolatePR(rec.keyframes, 0);
     rec.mesh.position.copy(a.pos);
@@ -415,19 +441,16 @@ window.loadRoad = function(points, opts = {}) {
 };
 
 /* ========================
-   NEW: Animation JSON API (rotation ignored)
+   NEW: Animation JSON API (pos only here; ignore any non-"move" transitions)
 ======================== */
 window.loadAnimationJSON = function(obj){
-  // Expecting: { animation:{name,time_scale}, objects:[...], transition:[...] }
   const { animation, objects, transition } = obj || {};
   animationTitle = animation?.name ? String(animation.name) : '';
   timeScale = Number.isFinite(+animation?.time_scale) ? +animation.time_scale : 1.0;
 
-  // Clear scene registry
   for (const [, rec] of registry) scene.remove(rec.mesh);
   registry.clear();
 
-  // Create meshes from objects; seed initial PR keyframe (t=0), rotation disabled
   const byId = new Map();
 
   (objects || []).forEach(o=>{
@@ -436,9 +459,8 @@ window.loadAnimationJSON = function(obj){
     const col = resolveColor(o.color, type === 'container_truck' ? 0x333333 : 0x8888ff);
 
     let mesh;
-    if (type === 'container_truck') {
-      mesh = makeTruck(col.getHex());
-    } else {
+    if (type === 'container_truck') mesh = makeTruck(col.getHex());
+    else {
       const w = +(o.width || 2), h = +(o.height || 2), d = +(o.depth || o.width || 2);
       mesh = new THREE.Mesh(
         new THREE.BoxGeometry(Math.max(0.1, w/10), Math.max(0.1, h/10), Math.max(0.1, d/10)),
@@ -446,22 +468,19 @@ window.loadAnimationJSON = function(obj){
       );
       mesh.position.y = Math.max(0.05, h/20);
     }
-    mesh.quaternion.identity(); // freeze rotation
+    mesh.quaternion.identity();
     scene.add(mesh);
 
     const p0 = new THREE.Vector3(+(o.x || 0), +(o.y || 0), +(o.z || 0));
-    const qIdentity = new THREE.Quaternion();
-
     byId.set(id, {
       mesh,
       color: col.getHex(),
-      keyframes: [{ t: 0, pos: p0.clone(), quat: qIdentity.clone() }],
+      keyframes: [{ t: 0, pos: p0.clone(), quat: new THREE.Quaternion() }],
       lastPos: p0.clone(),
-      lastForward: new THREE.Vector3(1, 0, 0) // default forward (+X)
+      lastForward: new THREE.Vector3(1, 0, 0)
     });
   });
 
-  // Apply transitions -> ONLY 'move' is accepted; 'rotation' is ignored
   (transition || []).forEach(tr=>{
     const id = String(tr.objId ?? tr.id ?? '');
     if (!byId.has(id)) return;
@@ -469,27 +488,22 @@ window.loadAnimationJSON = function(obj){
     const t = +tr.time || 0;
     const kind = String(tr.type||'').toLowerCase();
 
-    if (kind !== 'move') return; // ignore any rotation transitions entirely
+    if (kind !== 'move') return; // anything else ignored
 
-    // Merge-at-time semantics
     let kf = rec.keyframes.find(k => k.t === t);
     if (!kf) {
       const last = rec.keyframes[rec.keyframes.length - 1];
-      kf = { t, pos: last.pos.clone(), quat: last.quat.clone() };
+      kf = { t, pos: last.pos.clone(), quat: last.quat?.clone?.() || new THREE.Quaternion() };
       rec.keyframes.push(kf);
     }
     kf.pos.set(+(tr.x ?? kf.pos.x), +(tr.y ?? kf.pos.y), +(tr.z ?? kf.pos.z));
   });
 
-  // Normalize time order, compute duration, register
   let maxT = 0;
   for (const [id, rec] of byId.entries()){
     rec.keyframes.sort((a,b)=>a.t-b.t);
-    // de-dup exact-time duplicates (keep last)
     for (let i = rec.keyframes.length - 2; i >= 0; i--) {
-      if (rec.keyframes[i].t === rec.keyframes[i+1].t) {
-        rec.keyframes.splice(i, 1);
-      }
+      if (rec.keyframes[i].t === rec.keyframes[i+1].t) rec.keyframes.splice(i, 1);
     }
     maxT = Math.max(maxT, rec.keyframes[rec.keyframes.length-1].t);
     registry.set(id, {
@@ -505,11 +519,10 @@ window.loadAnimationJSON = function(obj){
   simEnd = maxT;
   updateTimelineMax();
 
-  // initial pose (no rotation)
   for (const [, rec] of registry) {
     const a = interpolatePR(rec.keyframes, 0);
     rec.mesh.position.copy(a.pos);
-    rec.mesh.quaternion.identity(); // ensure
+    rec.mesh.quaternion.identity();
     rec.lastPos.copy(a.pos);
   }
 
@@ -521,7 +534,7 @@ window.loadAnimationJSON = function(obj){
 };
 
 /* ========================
-   Controls (incl. timeline & GLB)
+   Controls (incl. env load)
 ======================== */
 const playBtn = document.getElementById('playBtn');
 const pauseBtn = document.getElementById('pauseBtn');
@@ -552,7 +565,7 @@ const glbOpacityLabel = document.getElementById('glbOpacityLabel');
 playBtn.addEventListener('click', ()=>{ playing = true; playBtn.disabled = true; pauseBtn.disabled = false; setLegendVisible(false); });
 pauseBtn.addEventListener('click', ()=>{ playing = false; playBtn.disabled = false; pauseBtn.disabled = true; setLegendVisible(true); });
 resetBtn.addEventListener('click', ()=>{ setSimTime(0); playing = false; playBtn.disabled = false; pauseBtn.disabled = true; setLegendVisible(true); });
-speedSlider.addEventListener('input', ()=>{ playbackSpeed = parseFloat(speedSlider.value); speedLabel.textContent = playbackSpeed.toFixed(1) + '×'; });
+speedSlider.addEventListener('input', ()=>{ const v=parseFloat(speedSlider.value); playbackSpeed=v; speedLabel.textContent = v.toFixed(1) + '×'; });
 legendBtn.addEventListener('click', ()=> overlayEl.classList.toggle('hidden'));
 
 freeCamBtn.addEventListener('click', ()=>{ followId = null; truckSelect.value = ''; });
@@ -561,45 +574,56 @@ truckSelect.addEventListener('change', () => { followId = truckSelect.value || n
 loadBtn.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
-  if (f) { await handleFile(f); fileInput.value = ''; }
+  if (f) { await handleDataFile(f); fileInput.value = ''; }
 });
 
 loadPortBtn.addEventListener('click', ()=> portInput.click());
 portInput.addEventListener('change', async (e)=>{
   const f = e.target.files?.[0];
   if (!f) return;
+  const name = f.name.toLowerCase();
   const url = URL.createObjectURL(f);
   try{
-    const newPort = await loadPort(url);
-    if (portRoot) scene.remove(portRoot);
-    portRoot = newPort;
-    scene.add(portRoot);
-    applyPortAppearance(portRoot);
-    console.log('Port GLB loaded from file:', f.name);
+    if (name.endsWith('.glb') || name.endsWith('.gltf')) {
+      setEnvironment(await loadPortGLB(url));
+      console.log('Environment GLB loaded from file:', f.name);
+    } else if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg')) {
+      setEnvironment(await loadPortPNG(url));
+      console.log('Environment image loaded from file:', f.name);
+    } else {
+      alert('Unsupported environment file. Use .glb/.gltf or .png/.jpg');
+    }
   }catch(err){
-    console.error('Port GLB load failed:', err);
-    alert('Failed to load GLB: ' + err.message);
+    console.error('Environment load failed:', err);
+    alert('Failed to load environment: ' + err.message);
   }finally{
     URL.revokeObjectURL(url);
   }
 });
 
-// Drag & drop (.json/.csv/.glb)
+// Drag & drop (.json/.csv for data; .glb/.gltf/.png/.jpg for environment)
 wrap.addEventListener('dragover', (e)=>{ e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
 wrap.addEventListener('drop', async (e)=>{
   e.preventDefault();
   const f = e.dataTransfer.files && e.dataTransfer.files[0];
   if (!f) return;
   const name = f.name.toLowerCase();
-  if (name.endsWith('.glb') || name.endsWith('.gltf')){
-    portInput.files = e.dataTransfer.files;
-    portInput.dispatchEvent(new Event('change'));
+  if (name.endsWith('.glb') || name.endsWith('.gltf')) {
+    const url = URL.createObjectURL(f);
+    try { setEnvironment(await loadPortGLB(url)); }
+    catch(err){ console.error(err); alert('Failed to load GLB: ' + err.message); }
+    finally { URL.revokeObjectURL(url); }
+  } else if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg')) {
+    const url = URL.createObjectURL(f);
+    try { setEnvironment(await loadPortPNG(url)); }
+    catch(err){ console.error(err); alert('Failed to load image: ' + err.message); }
+    finally { URL.revokeObjectURL(url); }
   } else {
-    await handleFile(f);
+    await handleDataFile(f);
   }
 });
 
-// Timeline UI events
+/* --- Timeline UI events (FIX) --- */
 let wasPlayingDuringScrub = false;
 let scrubbing = false;
 
@@ -608,23 +632,34 @@ timeline.addEventListener('pointerdown', ()=>{
   playing = false;
   scrubbing = true;
 });
+
 window.addEventListener('pointerup', ()=>{
-  if (scrubbing){
-    scrubbing = false;
-    if (wasPlayingDuringScrub) { playing = true; playBtn.disabled = true; pauseBtn.disabled = false; }
+  if (!scrubbing) return;
+  scrubbing = false;
+  if (wasPlayingDuringScrub) {
+    playing = true;
+    playBtn.disabled = true;
+    pauseBtn.disabled = false;
   }
 });
-timeline.addEventListener('input', ()=> setSimTime(+timeline.value));
 
+timeline.addEventListener('input', ()=>{
+  setSimTime(+timeline.value);
+});
+
+// Jump buttons
 tlHome.addEventListener('click', ()=> setSimTime(0));
+
 tlBack.addEventListener('click', (e)=>{
   const step = e.shiftKey ? 5 : e.altKey ? 0.1 : 1;
   nudge(-step);
 });
+
 tlFwd.addEventListener('click', (e)=>{
   const step = e.shiftKey ? 5 : e.altKey ? 0.1 : 1;
   nudge(step);
 });
+
 tlLoop.addEventListener('click', ()=>{
   loopOn = !loopOn;
   tlLoop.classList.toggle('on', loopOn);
@@ -641,34 +676,34 @@ window.addEventListener('keydown', (e)=>{
   if (e.code === 'End'){ setSimTime(simEnd); }
 });
 
-// GLB controls
+// Environment sliders (apply to GLB or PNG map)
 glbYaw.addEventListener('input', ()=>{
   const deg = parseFloat(glbYaw.value);
-  portYawRad = deg * Math.PI / 180;
+  envYawRad = deg * Math.PI / 180;
   glbYawLabel.textContent = `${deg.toFixed(0)}°`;
-  applyPortAppearance(portRoot);
+  applyEnvAppearance(envRoot);
 });
 glbPitch.addEventListener('input', ()=>{
   const deg = parseFloat(glbPitch.value);
-  portPitchRad = deg * Math.PI / 180;
+  envPitchRad = deg * Math.PI / 180;
   glbPitchLabel.textContent = `${deg.toFixed(0)}°`;
-  applyPortAppearance(portRoot);
+  applyEnvAppearance(envRoot);
 });
 glbScale.addEventListener('input', ()=>{
-  portUserScale = parseFloat(glbScale.value);
-  glbScaleLabel.textContent = `${portUserScale.toFixed(2)}×`;
-  applyPortAppearance(portRoot);
+  envUserScale = parseFloat(glbScale.value);
+  glbScaleLabel.textContent = `${envUserScale.toFixed(2)}×`;
+  applyEnvAppearance(envRoot);
 });
 glbOpacity.addEventListener('input', ()=>{
-  portOpacity = parseFloat(glbOpacity.value);
-  glbOpacityLabel.textContent = portOpacity.toFixed(2);
-  applyPortAppearance(portRoot);
+  envOpacity = parseFloat(glbOpacity.value);
+  glbOpacityLabel.textContent = envOpacity.toFixed(2);
+  applyEnvAppearance(envRoot);
 });
 
 /* ========================
-   File parsers
+   Data file parsers
 ======================== */
-async function handleFile(file) {
+async function handleDataFile(file) {
   const text = await file.text();
   try {
     if (file.name.toLowerCase().endsWith('.json') || text.trim().startsWith('{') || text.trim().startsWith('[')) {
@@ -791,8 +826,8 @@ function parseCSVMixed(text) {
 ======================== */
 function resize() {
   const w = wrap.clientWidth || window.innerWidth;
-  const headerH = document.querySelector('header').offsetHeight;
-  const tlH = document.getElementById('timelineBar').offsetHeight;
+  const headerH = document.querySelector('header')?.offsetHeight || 0;
+  const tlH = document.getElementById('timelineBar')?.offsetHeight || 0;
   const h = wrap.clientHeight || (window.innerHeight - headerH - tlH);
   renderer.setSize(w, h);
   camera.aspect = w / h;
