@@ -11,6 +11,12 @@ const FOLLOW_HEIGHT = 4;
 const PORT_URL = './port.glb';      // auto-load if present (GLB)
 const PORT_TARGET_SIZE = 10000;     // fit longest axis to this size
 
+// ---- LocalStorage keys & limits ----
+const MAX_CACHE_CHARS   = 200000;                 // ~200 KB of text to avoid quota issues
+const LS_DATA_TEXT_KEY  = 'sim_last_data_text';
+const LS_DATA_KIND_KEY  = 'sim_last_data_kind';   // 'json' | 'csv'
+const LS_SETTINGS_KEY   = 'sim_settings_v1';      // view / playback settings
+
 /* ========================
    Scene setup
 ======================== */
@@ -37,6 +43,9 @@ scene.add(dir);
 /* ========================
    Helpers
 ======================== */
+
+
+
 function resolveColor(input, fallback = 0x8888ff) {
   const c = new THREE.Color();
   try {
@@ -54,13 +63,26 @@ function makeTruck(color = 0xff6655) {
   const body = new THREE.Mesh(new THREE.BoxGeometry(4.5, 2, 2.5), bodyMat);
   body.position.y = 1.2; g.add(body);
 
-  const cabColor = (typeof color === 'number') ? ((color & 0xfefefe) ^ 0x222222) : 0xffffff;
-  const cab = new THREE.Mesh(
-    new THREE.BoxGeometry(2, 1.6, 2.4),
-    new THREE.MeshStandardMaterial({ color: cabColor, roughness: 0.4 })
-  );
-  cab.position.set(-2.4, 1.5, 0); g.add(cab);
+  
   return g;
+}
+
+// ---- Data cache helpers ----
+function cacheLastData(text, kind = 'json') {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  if (!text || typeof text !== 'string') return;
+
+  if (text.length > MAX_CACHE_CHARS) {
+    console.warn('Data too large to cache, skipping. length =', text.length);
+    return;
+  }
+
+  try {
+    localStorage.setItem(LS_DATA_TEXT_KEY, text);
+    localStorage.setItem(LS_DATA_KIND_KEY, kind);
+  } catch (err) {
+    console.warn('Could not save last data to localStorage:', err);
+  }
 }
 
 /* ========================
@@ -79,6 +101,43 @@ let envPitchRad = 0;      // radians
 let envOpacity = 1.0;
 let envUserScale = 1.0;   // multiplies auto-fit
 let animationTitle = '';
+
+/* ========================
+   PNG cache helpers
+======================== */
+
+// Save a PNG/JPG file into localStorage as data URL
+function cachePNG(file) {
+  const reader = new FileReader();
+  reader.readAsDataURL(file);
+
+  reader.onload = () => {
+    try {
+      localStorage.setItem('cachedPNG', reader.result);
+      console.log('PNG cached to localStorage');
+    } catch (err) {
+      console.warn('Could not cache PNG (probably too large):', err);
+    }
+  };
+}
+
+// Try to load cached PNG and return a loaded environment group (or null)
+async function tryLoadCachedPNG() {
+  const dataURL = localStorage.getItem('cachedPNG');
+  if (!dataURL) return null;
+
+  try {
+    const blob = await (await fetch(dataURL)).blob();
+    const url = URL.createObjectURL(blob);
+    const root = await loadPortPNG(url);
+    // We can revoke later if needed; safe to keep for session
+    return root;
+  } catch (err) {
+    console.warn('Failed to restore PNG from cache:', err);
+    return null;
+  }
+}
+
 
 /** GLB loader */
 async function loadPortGLB(url){
@@ -180,11 +239,30 @@ function setEnvironment(newRoot){
   }
 }
 
-/** Autoload GLB if present (PNG/JPG is user-provided) */
-fetch(PORT_URL, { method: 'HEAD' })
-  .then(res => { if (res.ok) return loadPortGLB(PORT_URL); throw 0; })
-  .then(root => { setEnvironment(root); console.log('Environment GLB loaded:', PORT_URL); })
-  .catch(()=> console.log('No port.glb found (environment not autoloaded).'));
+/** Autoload environment: cached PNG first, then port.glb if present */
+(async function initEnvironment() {
+  try {
+    // 1) Try cached PNG from localStorage
+    const cached = await tryLoadCachedPNG();
+    if (cached) {
+      setEnvironment(cached);
+      console.log('Environment PNG loaded from cache');
+      return;
+    }
+  } catch (err) {
+    console.warn('Error while loading cached PNG:', err);
+  }
+
+  // 2) If no cached PNG, try auto-loading local GLB
+  fetch(PORT_URL, { method: 'HEAD' })
+    .then(res => { if (res.ok) return loadPortGLB(PORT_URL); throw 0; })
+    .then(root => {
+      setEnvironment(root);
+      console.log('Environment GLB loaded:', PORT_URL);
+    })
+    .catch(() => console.log('No port.glb found (environment not autoloaded).'));
+})();
+
 
 /* ========================
    Road ribbon from curve (legacy)
@@ -316,18 +394,17 @@ const overlayEl = document.getElementById('overlay');
 const legendEl = document.getElementById('legend');
 const truckSelect = document.getElementById('truckSelect');
 
-function focusCameraOnId(id, {hideLegend=true, instant=true} = {}) {
-  if (!registry.has(id)) return;
-
-  // Switch follow to this id and reflect in the dropdown
-  followId = id;
-  if (truckSelect) truckSelect.value = id;
-
+function focusCameraOnce(id, {instant=true} = {}) {
   const rec = registry.get(id);
+  if (!rec) return;
+
+  // Always release follow
+  followId = null;
+  if (truckSelect) truckSelect.value = '';
+
   const pos = rec.mesh.position.clone();
   const forward = rec.lastForward.lengthSq() > 0 ? rec.lastForward : new THREE.Vector3(1,0,0);
 
-  // Where the follow-cam normally sits
   const desiredPos = pos.clone()
     .addScaledVector(forward, -FOLLOW_DIST)
     .add(new THREE.Vector3(0, FOLLOW_HEIGHT, 0));
@@ -337,15 +414,11 @@ function focusCameraOnId(id, {hideLegend=true, instant=true} = {}) {
     camera.position.copy(desiredPos);
     controls.target.copy(lookTarget);
   } else {
-    // A little nudge; the render loop lerps further
     camera.position.lerp(desiredPos, 0.35);
     controls.target.lerp(lookTarget, 0.35);
   }
   controls.update();
-
-  if (hideLegend) setLegendVisible(false);
 }
-
 
 function refreshTruckSelect(){
   const prev = truckSelect.value;
@@ -360,34 +433,6 @@ function refreshTruckSelect(){
   }
   const hasPrev = [...registry.keys()].includes(prev);
   truckSelect.value = hasPrev ? prev : '';
-}
-function focusCameraOnce(id, {instant=true, keepLegend=false} = {}) {
-  const rec = registry.get(id);
-  if (!rec) return;
-
-  // Always release follow
-  followId = null;
-  if (truckSelect) truckSelect.value = '';
-
-  const pos = rec.mesh.position.clone();
-  const forward = rec.lastForward.lengthSq() > 0 ? rec.lastForward : new THREE.Vector3(1,0,0);
-
-  // Same offset the follow-cam uses, but applied once
-  const desiredPos = pos.clone()
-    .addScaledVector(forward, -FOLLOW_DIST)
-    .add(new THREE.Vector3(0, FOLLOW_HEIGHT, 0));
-  const lookTarget = new THREE.Vector3(pos.x, pos.y + 1.5, pos.z);
-
-  if (instant) {
-    camera.position.copy(desiredPos);
-    controls.target.copy(lookTarget);
-  } else {
-    camera.position.lerp(desiredPos, 0.35);
-    controls.target.lerp(lookTarget, 0.35);
-  }
-  controls.update();
-
-
 }
 
 function updateLegend() {
@@ -404,16 +449,14 @@ function updateLegend() {
     dot.style.background = '#' + rec.color.toString(16).padStart(6,'0');
     const txt = document.createElement('span'); txt.textContent = id;
 
-    // Focus once, then stay in Free mode
+    // Focus camera once on click (no follow)
     chip.addEventListener('click', () => focusCameraOnce(id));
 
     chip.appendChild(dot); chip.appendChild(txt);
     legendEl.appendChild(chip);
   }
-  refreshTruckSelect(); // will show '' (Free) after focusing
+  refreshTruckSelect();
 }
-
-
 
 function setLegendVisible(v){ overlayEl.classList.toggle('hidden', !v); }
 
@@ -627,14 +670,116 @@ const glbScaleLabel = document.getElementById('glbScaleLabel');
 const glbOpacity = document.getElementById('glbOpacity');
 const glbOpacityLabel = document.getElementById('glbOpacityLabel');
 
-playBtn.addEventListener('click', ()=>{ playing = true; playBtn.disabled = true; pauseBtn.disabled = false; setLegendVisible(false); });
-pauseBtn.addEventListener('click', ()=>{ playing = false; playBtn.disabled = false; pauseBtn.disabled = true; setLegendVisible(true); });
-resetBtn.addEventListener('click', ()=>{ setSimTime(0); playing = false; playBtn.disabled = false; pauseBtn.disabled = true; setLegendVisible(true); });
-speedSlider.addEventListener('input', ()=>{ const v=parseFloat(speedSlider.value); playbackSpeed=v; speedLabel.textContent = v.toFixed(1) + '×'; });
+/* ========================
+   Settings: load/save (LocalStorage)
+======================== */
+function saveSettings() {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  const data = {
+    playbackSpeed,
+    loopOn,
+    glbYaw: parseFloat(glbYaw.value),
+    glbPitch: parseFloat(glbPitch.value),
+    glbScale: parseFloat(glbScale.value),
+    glbOpacity: parseFloat(glbOpacity.value)
+  };
+  try {
+    localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(data));
+  } catch (err) {
+    console.warn('Could not save settings to localStorage:', err);
+  }
+}
+
+function loadSettings() {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  const raw = localStorage.getItem(LS_SETTINGS_KEY);
+  if (!raw) return;
+  try {
+    const data = JSON.parse(raw);
+
+    // Playback speed
+    if (typeof data.playbackSpeed === 'number' && !Number.isNaN(data.playbackSpeed)) {
+      playbackSpeed = data.playbackSpeed;
+      speedSlider.value = playbackSpeed.toFixed(1);
+      speedLabel.textContent = playbackSpeed.toFixed(1) + '×';
+    }
+
+    // Loop
+    if (typeof data.loopOn === 'boolean') {
+      loopOn = data.loopOn;
+      tlLoop.classList.toggle('on', loopOn);
+    }
+
+    // GLB controls
+    if (typeof data.glbYaw === 'number') {
+      glbYaw.value = data.glbYaw;
+      envYawRad = data.glbYaw * Math.PI / 180;
+      glbYawLabel.textContent = `${Math.round(data.glbYaw)}°`;
+    }
+    if (typeof data.glbPitch === 'number') {
+      glbPitch.value = data.glbPitch;
+      envPitchRad = data.glbPitch * Math.PI / 180;
+      glbPitchLabel.textContent = `${Math.round(data.glbPitch)}°`;
+    }
+    if (typeof data.glbScale === 'number') {
+      glbScale.value = data.glbScale;
+      envUserScale = data.glbScale;
+      glbScaleLabel.textContent = `${envUserScale.toFixed(2)}×`;
+    }
+    if (typeof data.glbOpacity === 'number') {
+      glbOpacity.value = data.glbOpacity;
+      envOpacity = data.glbOpacity;
+      glbOpacityLabel.textContent = envOpacity.toFixed(2);
+    }
+
+    if (envRoot) applyEnvAppearance(envRoot);
+    console.log('Restored settings from cache');
+  } catch (err) {
+    console.warn('Failed to load settings from localStorage:', err);
+  }
+}
+
+// Load settings once DOM refs are ready
+loadSettings();
+
+/* ========================
+   Controls wiring
+======================== */
+playBtn.addEventListener('click', ()=>{
+  playing = true;
+  playBtn.disabled = true;
+  pauseBtn.disabled = false;
+  setLegendVisible(false);
+});
+pauseBtn.addEventListener('click', ()=>{
+  playing = false;
+  playBtn.disabled = false;
+  pauseBtn.disabled = true;
+  setLegendVisible(true);
+});
+resetBtn.addEventListener('click', ()=>{
+  setSimTime(0);
+  playing = false;
+  playBtn.disabled = false;
+  pauseBtn.disabled = true;
+  setLegendVisible(true);
+});
+speedSlider.addEventListener('input', ()=>{
+  const v = parseFloat(speedSlider.value);
+  playbackSpeed = v;
+  speedLabel.textContent = v.toFixed(1) + '×';
+  saveSettings();
+});
 legendBtn.addEventListener('click', ()=> overlayEl.classList.toggle('hidden'));
 
-freeCamBtn.addEventListener('click', ()=>{ followId = null; truckSelect.value = ''; });
-truckSelect.addEventListener('change', () => { followId = truckSelect.value || null; });
+freeCamBtn.addEventListener('click', ()=>{
+  followId = null;
+  truckSelect.value = '';
+});
+
+truckSelect.addEventListener('change', () => {
+  followId = truckSelect.value || null;
+});
 
 loadBtn.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', async (e) => {
@@ -653,6 +798,9 @@ portInput.addEventListener('change', async (e)=>{
       setEnvironment(await loadPortGLB(url));
       console.log('Environment GLB loaded from file:', f.name);
     } else if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg')) {
+      // ⬇️ NEW: save to cache
+      cachePNG(f);
+
       setEnvironment(await loadPortPNG(url));
       console.log('Environment image loaded from file:', f.name);
     } else {
@@ -665,6 +813,7 @@ portInput.addEventListener('change', async (e)=>{
     URL.revokeObjectURL(url);
   }
 });
+
 
 // Drag & drop (.json/.csv for data; .glb/.gltf/.png/.jpg for environment)
 wrap.addEventListener('dragover', (e)=>{ e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
@@ -728,6 +877,7 @@ tlFwd.addEventListener('click', (e)=>{
 tlLoop.addEventListener('click', ()=>{
   loopOn = !loopOn;
   tlLoop.classList.toggle('on', loopOn);
+  saveSettings();
 });
 
 // Keyboard shortcuts
@@ -747,22 +897,26 @@ glbYaw.addEventListener('input', ()=>{
   envYawRad = deg * Math.PI / 180;
   glbYawLabel.textContent = `${deg.toFixed(0)}°`;
   applyEnvAppearance(envRoot);
+  saveSettings();
 });
 glbPitch.addEventListener('input', ()=>{
   const deg = parseFloat(glbPitch.value);
   envPitchRad = deg * Math.PI / 180;
   glbPitchLabel.textContent = `${deg.toFixed(0)}°`;
   applyEnvAppearance(envRoot);
+  saveSettings();
 });
 glbScale.addEventListener('input', ()=>{
   envUserScale = parseFloat(glbScale.value);
   glbScaleLabel.textContent = `${envUserScale.toFixed(2)}×`;
   applyEnvAppearance(envRoot);
+  saveSettings();
 });
 glbOpacity.addEventListener('input', ()=>{
   envOpacity = parseFloat(glbOpacity.value);
   glbOpacityLabel.textContent = envOpacity.toFixed(2);
   applyEnvAppearance(envRoot);
+  saveSettings();
 });
 
 /* ========================
@@ -781,6 +935,10 @@ async function handleDataFile(file) {
         if (tracks?.length) window.loadTracks(tracks);
         if (!road && !tracks) throw new Error('No road or tracks found in JSON.');
       }
+
+      // Cache JSON text
+      cacheLastData(text, 'json');
+
     } else {
       const res = parseCSVMixed(text);
       if (res.road?.length) window.loadRoad(res.road, { width: res.width });
@@ -788,8 +946,16 @@ async function handleDataFile(file) {
       if ((!res.road || !res.road.length) && (!res.tracks || !res.tracks.length)) {
         throw new Error('No road or tracks found in CSV.');
       }
+
+      // Cache CSV text
+      cacheLastData(text, 'csv');
     }
-    if (registry.size) { playing = true; playBtn.disabled = true; pauseBtn.disabled = false; setLegendVisible(false); }
+    if (registry.size) {
+      playing = true;
+      playBtn.disabled = true;
+      pauseBtn.disabled = false;
+      setLegendVisible(false);
+    }
   } catch (err) {
     console.error(err);
     alert('Failed to load file: ' + err.message +
@@ -964,18 +1130,58 @@ function tick() {
 tick();
 
 /* ========================
-   Auto-load data on start (optional)
+   Auto-load data on start: cache first, then demo.json
 ======================== */
-fetch("./demo.json")
-  .then(r => r.json())
-  .then(data => {
-    if (data.animation || data.objects || data.transition) {
-      window.loadAnimationJSON(data);
-    } else {
-      const { road, tracks } = parseJSONMixedObject(data);
-      if (data.road?.points?.length) window.loadRoad(data.road.points, { width: data.road.width });
-      if (tracks?.length) window.loadTracks(tracks);
+(function autoLoadInitial() {
+  let loadedFromCache = false;
+
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const cached = localStorage.getItem(LS_DATA_TEXT_KEY);
+    const kind = localStorage.getItem(LS_DATA_KIND_KEY) || 'json';
+
+    if (cached) {
+      try {
+        if (kind === 'csv') {
+          const res = parseCSVMixed(cached);
+          if (res.road?.length) window.loadRoad(res.road, { width: res.width });
+          if (res.tracks?.length) window.loadTracks(res.tracks);
+          if (!res.road && (!res.tracks || !res.tracks.length)) {
+            throw new Error('No road or tracks found in cached CSV.');
+          }
+        } else {
+          const data = JSON.parse(cached);
+          if (data.animation || data.objects || data.transition) {
+            window.loadAnimationJSON(data);
+          } else {
+            const { road, tracks } = parseJSONMixedObject(data);
+            if (data.road?.points?.length) window.loadRoad(data.road.points, { width: data.road.width });
+            if (tracks?.length) window.loadTracks(tracks);
+            if (!road && !tracks) {
+              throw new Error('No road or tracks found in cached JSON.');
+            }
+          }
+        }
+        loadedFromCache = true;
+        console.log('Loaded animation from browser cache');
+      } catch (err) {
+        console.warn('Failed to load cached data, will fall back to demo.json:', err);
+      }
     }
-    console.log("Loaded demo.json");
-  })
-  .catch(err => console.warn("Could not auto-load demo.json:", err));
+  }
+
+  if (!loadedFromCache) {
+    fetch("./demo.json")
+      .then(r => r.json())
+      .then(data => {
+        if (data.animation || data.objects || data.transition) {
+          window.loadAnimationJSON(data);
+        } else {
+          const { road, tracks } = parseJSONMixedObject(data);
+          if (data.road?.points?.length) window.loadRoad(data.road.points, { width: data.road.width });
+          if (tracks?.length) window.loadTracks(tracks);
+        }
+        console.log("Loaded demo.json (no cached data)");
+      })
+      .catch(err => console.warn("Could not auto-load demo.json:", err));
+  }
+})();
