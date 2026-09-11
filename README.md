@@ -11,13 +11,13 @@ Windows Server with MySQL 8.
 
 ## Status
 
-The project is being built in phases. Phase 1 is complete.
+The project is being built in phases. Phases 1 and 2 are complete.
 
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Accounts, projects, roles, asset storage, plan georeferencing | Done |
-| 2 | godes engine, model spec, run pipeline, artifact format | Next |
-| 3 | React frontend, 3D viewer, synchronized 2D plan view | |
+| 2 | godes engine, model spec, run pipeline, artifact format | Done |
+| 3 | React frontend, 3D viewer, synchronized 2D plan view | Next |
 | 4 | Heatmaps, resource Gantt, spaghetti paths, KPI dashboard | |
 | 5 | Scenario comparison | |
 | 6 | PDF report export | |
@@ -56,6 +56,40 @@ live at `/api/health`.
 
 The first account created on an empty instance becomes an administrator.
 
+## Running a simulation without the server
+
+The engine is usable on its own, which is the quickest way to try a model:
+
+```bash
+go build -o bin/simrunner ./cmd/simrunner
+./bin/simrunner -list
+./bin/simrunner -describe container_terminal
+./bin/simrunner -template container_terminal -set gateLanes=6 -seed 42 -out ./run1
+```
+
+A run directory holds the event trace, the playback chunks the viewer streams,
+and the aggregate files behind the dashboards. The same seed always produces a
+byte-identical trace.
+
+## What a run produces
+
+```
+manifest.json          index: time range, chunk levels, what else exists
+frames/lod0/00000.bin  playback chunks; higher levels thin entities out
+agg/kpi.json           headline numbers, also mirrored into MySQL
+agg/series.json        time series, integrated rather than sampled
+agg/gantt.json         per-resource busy, queued and down intervals
+agg/paths.json         sampled journey traces
+agg/heatmaps.json      traffic, dwell, occupancy and congestion grids
+run.trace              raw events; an intermediate, never served to a browser
+```
+
+Playback chunks are self-contained windows of simulated time. Each opens with
+every live entity's motion in progress, so seeking to hour six is one fetch
+rather than replaying the first six hours. Motion is stored as spans the viewer
+interpolates, which keeps size tied to how often entities change direction
+rather than to a frame rate.
+
 ## Layout
 
 ```
@@ -66,6 +100,10 @@ internal/db/       MySQL pool and embedded migrations
 internal/store/    Every SQL statement in the server
 internal/api/      Routing, middleware, handlers
 internal/engine/   godes integration: model spec, interpreter, templates
+internal/runstore/ Run artifacts: playback chunks, manifest, build pass
+internal/analytics/ KPIs, heatmaps, Gantt, journey traces
+internal/runner/   Run queue and process supervision
+internal/importer/ Converts legacy animation files into run artifacts
 internal/blobstore/ Content-addressed file storage
 web/               React frontend
 deploy/iis/        Windows Server hosting

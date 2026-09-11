@@ -12,6 +12,7 @@ import (
 	"github.com/andreybaranovskiy/simulation/internal/blobstore"
 	"github.com/andreybaranovskiy/simulation/internal/config"
 	"github.com/andreybaranovskiy/simulation/internal/model"
+	"github.com/andreybaranovskiy/simulation/internal/runner"
 	"github.com/andreybaranovskiy/simulation/internal/store"
 )
 
@@ -20,16 +21,27 @@ var Version = "dev"
 
 // Server holds everything the handlers need. It is created once at startup.
 type Server struct {
-	cfg    config.Config
-	store  *store.Store
-	auth   *auth.Service
-	blobs  *blobstore.Store
-	log    *slog.Logger
+	cfg   config.Config
+	store *store.Store
+	auth  *auth.Service
+	blobs *blobstore.Store
+	log   *slog.Logger
+
+	// dispatcher is nil when the simulation engine could not be started, which
+	// is recoverable: the rest of the API still works and the run endpoints
+	// say plainly that the engine is unavailable.
+	dispatcher *runner.Dispatcher
+
 	static http.Handler
 }
 
-func NewServer(cfg config.Config, st *store.Store, authSvc *auth.Service, blobs *blobstore.Store, log *slog.Logger) *Server {
-	s := &Server{cfg: cfg, store: st, auth: authSvc, blobs: blobs, log: log}
+func NewServer(cfg config.Config, st *store.Store, authSvc *auth.Service, blobs *blobstore.Store,
+	dispatcher *runner.Dispatcher, log *slog.Logger) *Server {
+
+	s := &Server{
+		cfg: cfg, store: st, auth: authSvc, blobs: blobs,
+		dispatcher: dispatcher, log: log,
+	}
 	s.static = newStaticHandler(cfg.Server.WebRoot, log)
 	return s
 }
@@ -53,6 +65,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/auth/me", authed(s.handleUpdateMe))
 	mux.HandleFunc("POST /api/auth/password", authed(s.handleChangePassword))
 	mux.HandleFunc("GET /api/users/search", authed(s.handleSearchUsers))
+
+	// The template set is a property of the build, not of a project, and the
+	// model editor needs it before a project exists.
+	mux.HandleFunc("GET /api/templates", authed(s.handleListTemplates))
+	mux.HandleFunc("GET /api/templates/{templateKey}", authed(s.handleGetTemplate))
+	mux.HandleFunc("POST /api/models/validate", authed(s.handleValidateModel))
 
 	mux.HandleFunc("GET /api/projects", authed(s.handleListProjects))
 	mux.HandleFunc("POST /api/projects", authed(s.handleCreateProject))
@@ -82,6 +100,41 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/projects/{projectID}/plans/{planID}", project(model.RoleViewer, s.handleGetSitePlan))
 	mux.HandleFunc("PUT /api/projects/{projectID}/plans/{planID}", project(model.RoleEditor, s.handleUpdateSitePlan))
 	mux.HandleFunc("DELETE /api/projects/{projectID}/plans/{planID}", project(model.RoleEditor, s.handleDeleteSitePlan))
+
+	mux.HandleFunc("GET /api/projects/{projectID}/models", project(model.RoleViewer, s.handleListModels))
+	mux.HandleFunc("POST /api/projects/{projectID}/models", project(model.RoleEditor, s.handleCreateModel))
+	mux.HandleFunc("GET /api/projects/{projectID}/models/{modelID}", project(model.RoleViewer, s.handleGetModel))
+	mux.HandleFunc("PATCH /api/projects/{projectID}/models/{modelID}", project(model.RoleEditor, s.handleUpdateModel))
+	mux.HandleFunc("DELETE /api/projects/{projectID}/models/{modelID}", project(model.RoleEditor, s.handleDeleteModel))
+
+	mux.HandleFunc("GET /api/projects/{projectID}/scenarios", project(model.RoleViewer, s.handleListScenarios))
+	mux.HandleFunc("POST /api/projects/{projectID}/scenarios", project(model.RoleEditor, s.handleCreateScenario))
+	mux.HandleFunc("GET /api/projects/{projectID}/scenarios/{scenarioID}", project(model.RoleViewer, s.handleGetScenario))
+	mux.HandleFunc("PATCH /api/projects/{projectID}/scenarios/{scenarioID}", project(model.RoleEditor, s.handleUpdateScenario))
+	mux.HandleFunc("POST /api/projects/{projectID}/scenarios/{scenarioID}/duplicate", project(model.RoleEditor, s.handleDuplicateScenario))
+	mux.HandleFunc("POST /api/projects/{projectID}/scenarios/{scenarioID}/archive", project(model.RoleEditor, s.handleArchiveScenario))
+	mux.HandleFunc("DELETE /api/projects/{projectID}/scenarios/{scenarioID}", project(model.RoleEditor, s.handleDeleteScenario))
+
+	// Starting a run is an editor action; watching one is not.
+	mux.HandleFunc("POST /api/projects/{projectID}/scenarios/{scenarioID}/run", project(model.RoleEditor, s.handleStartRun))
+
+	mux.HandleFunc("GET /api/projects/{projectID}/runs", project(model.RoleViewer, s.handleListRuns))
+	mux.HandleFunc("GET /api/projects/{projectID}/runs/{runID}", project(model.RoleViewer, s.handleGetRun))
+	mux.HandleFunc("GET /api/projects/{projectID}/runs/{runID}/kpis", project(model.RoleViewer, s.handleRunKPIs))
+	mux.HandleFunc("POST /api/projects/{projectID}/runs/{runID}/cancel", project(model.RoleEditor, s.handleCancelRun))
+	mux.HandleFunc("DELETE /api/projects/{projectID}/runs/{runID}", project(model.RoleEditor, s.handleDeleteRun))
+
+	// The viewer streams a run's artifacts through here rather than from a
+	// directory IIS can reach, so results stay behind the same membership
+	// check as everything else.
+	mux.HandleFunc("GET /api/projects/{projectID}/runs/{runID}/artifacts/{path...}",
+		project(model.RoleViewer, s.handleRunArtifact))
+
+	// Importing a pre-computed animation creates its model, scenario and run in
+	// one step, because there are no choices to make in between.
+	mux.HandleFunc("POST /api/projects/{projectID}/imports/animation", project(model.RoleEditor, s.handleImportAnimation))
+
+	mux.HandleFunc("GET /api/projects/{projectID}/events", project(model.RoleViewer, s.handleRunEvents))
 
 	// Administration.
 	admin := func(h handlerFunc) http.HandlerFunc {

@@ -24,6 +24,7 @@ import (
 	"github.com/andreybaranovskiy/simulation/internal/blobstore"
 	"github.com/andreybaranovskiy/simulation/internal/config"
 	"github.com/andreybaranovskiy/simulation/internal/db"
+	"github.com/andreybaranovskiy/simulation/internal/runner"
 	"github.com/andreybaranovskiy/simulation/internal/store"
 )
 
@@ -104,9 +105,20 @@ func run() error {
 	}
 	warnIfNoUsers(ctx, st, cfg, log)
 
+	// A missing runner executable is not fatal. Everything except starting
+	// runs still works, and the run endpoints say so plainly, which is far
+	// more useful than refusing to start at all.
+	dispatcher, err := runner.New(cfg, st, log)
+	if err != nil {
+		log.Error("the simulation engine is unavailable", "error", err)
+	} else {
+		dispatcher.Start(ctx)
+		defer dispatcher.Stop()
+	}
+
 	srv := &http.Server{
 		Addr:         cfg.Server.Addr,
-		Handler:      api.NewServer(cfg, st, authSvc, blobs, log).Handler(),
+		Handler:      api.NewServer(cfg, st, authSvc, blobs, dispatcher, log).Handler(),
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 		IdleTimeout:  cfg.Server.IdleTimeout,
