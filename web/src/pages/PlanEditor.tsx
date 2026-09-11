@@ -41,19 +41,64 @@ interface Zone {
   height: number
   color?: string
 }
+type DistKind = 'constant' | 'uniform' | 'normal' | 'exponential' | 'triangular' | 'lognormal' | 'empirical'
+interface Dist {
+  distribution?: DistKind
+  value?: number
+  min?: number
+  max?: number
+  mean?: number
+  sd?: number
+  mode?: number
+  values?: number[]
+  weights?: number[]
+}
+interface QueueSpec {
+  discipline?: 'fifo' | 'lifo' | 'priority'
+  capacity?: number
+  maxWait?: number
+}
 interface Resource {
   id: string
   label?: string
   node?: string
+  capacity?: number
+  service?: Dist
+  queue?: QueueSpec
+  [key: string]: unknown
+}
+type StepType = 'travel' | 'use' | 'seize' | 'release' | 'delay' | 'branch' | 'exit'
+interface Step {
+  type: StepType
+  label?: string
+  to?: string
+  resource?: string
+  duration?: Dist
+  branches?: unknown[]
+  [key: string]: unknown
+}
+interface Route {
+  id: string
+  label?: string
+  source?: string
+  steps?: Step[]
+  [key: string]: unknown
+}
+interface Source {
+  id: string
+  label?: string
 }
 
-// The spec is kept whole and only its geometry is touched, so saving round
-// trips everything the editor does not understand back unchanged.
+// The spec is kept whole and only its geometry and operating parameters are
+// touched, so saving round trips everything the editor does not understand back
+// unchanged.
 interface SpecModel {
   nodes?: Node[]
   links?: Link[]
   zones?: Zone[]
   resources?: Resource[]
+  routes?: Route[]
+  sources?: Source[]
   [key: string]: unknown
 }
 
@@ -178,9 +223,14 @@ function Editor({
   const plan = useMemo(() => plans.find((p) => p.id === planId) ?? null, [plans, planId])
   const [planImage, setPlanImage] = useState<HTMLImageElement | null>(null)
 
+  const [inspectorTab, setInspectorTab] = useState<'element' | 'routes'>('element')
+
   const nodes = spec.nodes ?? []
   const links = spec.links ?? []
   const zones = spec.zones ?? []
+  const resources = spec.resources ?? []
+  const routes = spec.routes ?? []
+  const sources = spec.sources ?? []
   const resourceNodes = useMemo(() => {
     const set = new Set<string>()
     for (const r of spec.resources ?? []) if (r.node) set.add(r.node)
@@ -272,6 +322,21 @@ function Editor({
     patch({ zones: zones.map((z) => (z.id === id ? { ...z, ...values } : z)) })
   const moveZone = (id: string, dx: number, dy: number) =>
     patch({ zones: zones.map((z) => (z.id === id ? { ...z, x: z.x + dx, y: z.y + dy } : z)) })
+
+  const setResource = (id: string, values: Partial<Resource>) =>
+    patch({ resources: resources.map((r) => (r.id === id ? { ...r, ...values } : r)) })
+  const addResource = (nodeId: string) => {
+    const id = uniqueId('resource', resources.map((r) => r.id))
+    patch({
+      resources: [
+        ...resources,
+        { id, label: id, node: nodeId, capacity: 1, service: { distribution: 'constant', value: 60 }, queue: { discipline: 'fifo' } },
+      ],
+    })
+  }
+  const removeResource = (id: string) => patch({ resources: resources.filter((r) => r.id !== id) })
+  const setRoute = (id: string, values: Partial<Route>) =>
+    patch({ routes: routes.map((r) => (r.id === id ? { ...r, ...values } : r)) })
 
   // ---- pointer interaction ------------------------------------------------
   const drag = useRef<
@@ -423,6 +488,7 @@ function Editor({
       void queryClient.invalidateQueries({ queryKey: ['model', projectId, model.id] })
     },
   })
+  const saveError = save.error instanceof Error ? save.error.message : null
 
   // ---- plan backdrop geometry --------------------------------------------
   const planLayout = useMemo(() => {
@@ -601,49 +667,83 @@ function Editor({
         </div>
 
         <Inspector
+          tab={inspectorTab}
+          setTab={setInspectorTab}
           selection={selection}
           nodes={nodes}
           zones={zones}
+          resources={resources}
+          routes={routes}
+          sources={sources}
           onNode={setNode}
           onZone={setZone}
           onDelete={remove}
+          onResource={setResource}
+          onAddResource={addResource}
+          onRemoveResource={removeResource}
+          onRoute={setRoute}
+          saveError={saveError}
         />
       </div>
     </div>
   )
 }
 
-function Inspector({
-  selection,
-  nodes,
-  zones,
-  onNode,
-  onZone,
-  onDelete,
-}: {
+interface InspectorProps {
+  tab: 'element' | 'routes'
+  setTab: (tab: 'element' | 'routes') => void
   selection: Selection
   nodes: Node[]
   zones: Zone[]
+  resources: Resource[]
+  routes: Route[]
+  sources: Source[]
   onNode: (id: string, values: Partial<Node>) => void
   onZone: (id: string, values: Partial<Zone>) => void
   onDelete: (target: NonNullable<Selection>) => void
-}) {
+  onResource: (id: string, values: Partial<Resource>) => void
+  onAddResource: (nodeId: string) => void
+  onRemoveResource: (id: string) => void
+  onRoute: (id: string, values: Partial<Route>) => void
+  saveError: string | null
+}
+
+function Inspector(props: InspectorProps) {
+  const { tab, setTab, saveError } = props
+  return (
+    <aside className="editor-inspector">
+      <div className="segmented" style={{ marginBottom: 14, width: '100%' }}>
+        <button className={`segment ${tab === 'element' ? 'on' : ''}`} style={{ flex: 1 }} onClick={() => setTab('element')}>
+          Selection
+        </button>
+        <button className={`segment ${tab === 'routes' ? 'on' : ''}`} style={{ flex: 1 }} onClick={() => setTab('routes')}>
+          Routes
+        </button>
+      </div>
+
+      {saveError && <div className="banner error">{saveError}</div>}
+
+      {tab === 'routes' ? <RoutesPanel {...props} /> : <SelectionPanel {...props} />}
+    </aside>
+  )
+}
+
+function SelectionPanel({ selection, nodes, zones, resources, onNode, onZone, onDelete, onResource, onAddResource, onRemoveResource }: InspectorProps) {
   if (!selection) {
     return (
-      <aside className="editor-inspector">
-        <p className="faint">
-          Select a node or a zone to edit its numbers. Every position here is in metres, on the same
-          grid the plan is calibrated to.
-        </p>
-      </aside>
+      <p className="faint">
+        Select a node or a zone to edit its numbers, or add a resource to a node. Every position
+        here is in metres, on the same grid the plan is calibrated to.
+      </p>
     )
   }
 
   if (selection.kind === 'node') {
     const node = nodes.find((n) => n.id === selection.id)
-    if (!node) return <aside className="editor-inspector" />
+    if (!node) return null
+    const here = resources.filter((r) => r.node === node.id)
     return (
-      <aside className="editor-inspector">
+      <>
         <h3>Node</h3>
         <Field label="Name">
           <input value={node.label ?? ''} onChange={(e) => onNode(node.id, { label: e.target.value })} />
@@ -659,14 +759,32 @@ function Inspector({
         <button className="btn danger small" onClick={() => onDelete(selection)}>
           Delete node
         </button>
-      </aside>
+
+        <div className="inspector-section">
+          <div className="row" style={{ marginBottom: 8 }}>
+            <h3 style={{ flex: 1, margin: 0 }}>Resources here</h3>
+            <button className="btn small ghost" onClick={() => onAddResource(node.id)}>
+              + Add
+            </button>
+          </div>
+          {here.length === 0 && (
+            <p className="faint" style={{ fontSize: 12 }}>
+              A resource is where entities are served: a gate, a crane, an inspection bay. Add one to
+              give this node a capacity and a service time.
+            </p>
+          )}
+          {here.map((r) => (
+            <ResourceEditor key={r.id} resource={r} onResource={onResource} onRemove={onRemoveResource} />
+          ))}
+        </div>
+      </>
     )
   }
 
   const zone = zones.find((z) => z.id === selection.id)
-  if (!zone) return <aside className="editor-inspector" />
+  if (!zone) return null
   return (
-    <aside className="editor-inspector">
+    <>
       <h3>Zone</h3>
       <Field label="Name">
         <input value={zone.label ?? ''} onChange={(e) => onZone(zone.id, { label: e.target.value })} />
@@ -690,7 +808,261 @@ function Inspector({
       <button className="btn danger small" onClick={() => onDelete(selection)}>
         Delete zone
       </button>
-    </aside>
+    </>
+  )
+}
+
+/** Edits one resource: its capacity, service time and queue. */
+function ResourceEditor({
+  resource,
+  onResource,
+  onRemove,
+}: {
+  resource: Resource
+  onResource: (id: string, values: Partial<Resource>) => void
+  onRemove: (id: string) => void
+}) {
+  return (
+    <div className="resource-card">
+      <Field label="Name">
+        <input value={resource.label ?? ''} onChange={(e) => onResource(resource.id, { label: e.target.value })} />
+      </Field>
+      <div className="row" style={{ gap: 8 }}>
+        <Field label="Capacity">
+          <input
+            type="number"
+            min={1}
+            value={resource.capacity ?? 1}
+            onChange={(e) => onResource(resource.id, { capacity: Math.max(1, Math.round(Number(e.target.value) || 1)) })}
+          />
+        </Field>
+        <Field label="Queue">
+          <select
+            value={resource.queue?.discipline ?? 'fifo'}
+            onChange={(e) =>
+              onResource(resource.id, { queue: { ...resource.queue, discipline: e.target.value as QueueSpec['discipline'] } })
+            }
+          >
+            <option value="fifo">First in, first out</option>
+            <option value="lifo">Last in, first out</option>
+            <option value="priority">By priority</option>
+          </select>
+        </Field>
+      </div>
+      <span className="field-label" style={{ marginTop: 4 }}>
+        Service time
+      </span>
+      <DistEditor dist={resource.service ?? { distribution: 'constant', value: 60 }} onChange={(d) => onResource(resource.id, { service: d })} />
+      <button className="btn danger small" style={{ marginTop: 10 }} onClick={() => onRemove(resource.id)}>
+        Remove resource
+      </button>
+    </div>
+  )
+}
+
+/**
+ * Edits a distribution: the kind, and only the fields that kind reads. The
+ * defaults it fills in when the kind changes keep the result valid, so switching
+ * from a constant to a triangular does not save a distribution with no bounds.
+ */
+function DistEditor({ dist, onChange }: { dist: Dist; onChange: (dist: Dist) => void }) {
+  const kind = dist.distribution ?? 'constant'
+  const set = (values: Partial<Dist>) => onChange({ ...dist, ...values })
+  const num = (v: number | undefined, fallback = 0) => (v === undefined ? fallback : v)
+
+  const changeKind = (next: DistKind) => {
+    // Seed the new kind with sensible numbers derived from whatever was there,
+    // so the switch never lands on an invalid distribution.
+    const centre = num(dist.value ?? dist.mean ?? dist.mode, 60)
+    switch (next) {
+      case 'constant':
+        onChange({ distribution: 'constant', value: centre })
+        break
+      case 'exponential':
+      case 'lognormal':
+        onChange({ distribution: next, mean: Math.max(0.1, centre), sd: next === 'lognormal' ? centre * 0.3 : undefined })
+        break
+      case 'normal':
+        onChange({ distribution: 'normal', mean: centre, sd: Math.max(0.1, centre * 0.2) })
+        break
+      case 'uniform':
+        onChange({ distribution: 'uniform', min: centre * 0.6, max: centre * 1.4 })
+        break
+      case 'triangular':
+        onChange({ distribution: 'triangular', min: centre * 0.6, mode: centre, max: centre * 1.6 })
+        break
+      default:
+        onChange({ distribution: next })
+    }
+  }
+
+  return (
+    <div className="dist-editor">
+      <select value={kind} onChange={(e) => changeKind(e.target.value as DistKind)}>
+        <option value="constant">Fixed</option>
+        <option value="exponential">Exponential (by mean)</option>
+        <option value="normal">Normal</option>
+        <option value="triangular">Triangular</option>
+        <option value="uniform">Uniform</option>
+        <option value="lognormal">Log-normal</option>
+      </select>
+
+      <div className="row" style={{ gap: 6, marginTop: 6 }}>
+        {kind === 'constant' && (
+          <Field label="Seconds">
+            <input type="number" value={num(dist.value)} onChange={(e) => set({ value: Number(e.target.value) })} />
+          </Field>
+        )}
+        {(kind === 'exponential' || kind === 'lognormal') && (
+          <Field label="Mean (s)">
+            <input type="number" value={num(dist.mean)} onChange={(e) => set({ mean: Number(e.target.value) })} />
+          </Field>
+        )}
+        {(kind === 'normal' || kind === 'lognormal') && (
+          <Field label="Std dev (s)">
+            <input type="number" value={num(dist.sd)} onChange={(e) => set({ sd: Number(e.target.value) })} />
+          </Field>
+        )}
+        {kind === 'normal' && (
+          <Field label="Mean (s)">
+            <input type="number" value={num(dist.mean)} onChange={(e) => set({ mean: Number(e.target.value) })} />
+          </Field>
+        )}
+        {(kind === 'uniform' || kind === 'triangular') && (
+          <Field label="Min (s)">
+            <input type="number" value={num(dist.min)} onChange={(e) => set({ min: Number(e.target.value) })} />
+          </Field>
+        )}
+        {kind === 'triangular' && (
+          <Field label="Mode (s)">
+            <input type="number" value={num(dist.mode)} onChange={(e) => set({ mode: Number(e.target.value) })} />
+          </Field>
+        )}
+        {(kind === 'uniform' || kind === 'triangular') && (
+          <Field label="Max (s)">
+            <input type="number" value={num(dist.max)} onChange={(e) => set({ max: Number(e.target.value) })} />
+          </Field>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Edits routes: the ordered steps an entity takes. A step references a node to
+ * travel to or a resource to use, so its dropdowns are the model's own nodes and
+ * resources. The server validates the whole route on save — a resource seized
+ * and never released, a step to a node that does not exist — and the message
+ * comes back to the banner above.
+ */
+function RoutesPanel({ routes, nodes, resources, onRoute }: InspectorProps) {
+  const [openId, setOpenId] = useState<string | null>(routes[0]?.id ?? null)
+
+  if (routes.length === 0) {
+    return <p className="faint">This model has no routes to edit.</p>
+  }
+
+  const route = routes.find((r) => r.id === openId) ?? routes[0]
+  const steps = route.steps ?? []
+
+  const setSteps = (next: Step[]) => onRoute(route.id, { steps: next })
+  const updateStep = (i: number, values: Partial<Step>) =>
+    setSteps(steps.map((s, j) => (j === i ? { ...s, ...values } : s)))
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir
+    if (j < 0 || j >= steps.length) return
+    const next = steps.slice()
+    ;[next[i], next[j]] = [next[j], next[i]]
+    setSteps(next)
+  }
+
+  return (
+    <>
+      <Field label="Route">
+        <select value={route.id} onChange={(e) => setOpenId(e.target.value)}>
+          {routes.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.label ?? r.id}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <div className="step-list">
+        {steps.map((step, i) => (
+          <div key={i} className="step-card">
+            <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+              <span className="step-index">{i + 1}</span>
+              <select
+                value={step.type}
+                onChange={(e) => updateStep(i, { type: e.target.value as StepType })}
+                style={{ flex: 1 }}
+              >
+                <option value="travel">Travel to</option>
+                <option value="use">Use resource</option>
+                <option value="delay">Wait</option>
+                <option value="seize">Seize resource</option>
+                <option value="release">Release resource</option>
+                <option value="branch">Branch</option>
+                <option value="exit">Exit</option>
+              </select>
+              <button className="icon-btn btn ghost small" title="Move up" onClick={() => move(i, -1)}>
+                ↑
+              </button>
+              <button className="icon-btn btn ghost small" title="Move down" onClick={() => move(i, 1)}>
+                ↓
+              </button>
+              <button className="icon-btn btn danger small" title="Remove step" onClick={() => setSteps(steps.filter((_, j) => j !== i))}>
+                ×
+              </button>
+            </div>
+
+            {step.type === 'travel' && (
+              <select value={step.to ?? ''} onChange={(e) => updateStep(i, { to: e.target.value })} style={{ marginTop: 6 }}>
+                <option value="">Choose a node…</option>
+                {nodes.map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {n.label ?? n.id}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {(step.type === 'use' || step.type === 'seize' || step.type === 'release') && (
+              <select value={step.resource ?? ''} onChange={(e) => updateStep(i, { resource: e.target.value })} style={{ marginTop: 6 }}>
+                <option value="">Choose a resource…</option>
+                {resources.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.label ?? r.id}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {step.type === 'delay' && (
+              <div style={{ marginTop: 6 }}>
+                <DistEditor dist={step.duration ?? { distribution: 'constant', value: 60 }} onChange={(d) => updateStep(i, { duration: d })} />
+              </div>
+            )}
+
+            {step.type === 'branch' && (
+              <p className="faint" style={{ fontSize: 11, marginTop: 6 }}>
+                {(step.branches?.length ?? 0)} branches. Branch weights are kept as they are; edit
+                them in the model definition.
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <button
+        className="btn small ghost"
+        style={{ marginTop: 10 }}
+        onClick={() => setSteps([...steps, { type: 'travel' }])}
+      >
+        + Add step
+      </button>
+    </>
   )
 }
 

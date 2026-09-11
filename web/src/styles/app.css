@@ -1238,3 +1238,48 @@ tbody tr:hover {
 :root[data-theme='light'] .edit-link {
   stroke: rgba(60, 100, 200, 0.55);
 }
+
+/* Plan editor inspector: resources and routes. */
+.inspector-section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.resource-card,
+.step-card {
+  background: var(--sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.dist-editor select {
+  font-size: 12px;
+}
+
+.step-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.step-index {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.step-card .icon-btn {
+  padding: 3px 7px;
+  font-size: 13px;
+}
