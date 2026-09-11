@@ -12,6 +12,7 @@ import (
 	"github.com/andreybaranovskiy/simulation/internal/blobstore"
 	"github.com/andreybaranovskiy/simulation/internal/config"
 	"github.com/andreybaranovskiy/simulation/internal/model"
+	"github.com/andreybaranovskiy/simulation/internal/report"
 	"github.com/andreybaranovskiy/simulation/internal/runner"
 	"github.com/andreybaranovskiy/simulation/internal/store"
 )
@@ -32,6 +33,11 @@ type Server struct {
 	// say plainly that the engine is unavailable.
 	dispatcher *runner.Dispatcher
 
+	// renderer is nil when no browser was found. PDF export then reports itself
+	// unavailable, exactly as the dispatcher does when the engine cannot start,
+	// while every other endpoint keeps working.
+	renderer *report.Renderer
+
 	static http.Handler
 }
 
@@ -43,6 +49,19 @@ func NewServer(cfg config.Config, st *store.Store, authSvc *auth.Service, blobs 
 		dispatcher: dispatcher, log: log,
 	}
 	s.static = newStaticHandler(cfg.Server.WebRoot, log)
+
+	if renderer, err := report.New(report.Options{
+		BrowserPath: cfg.Report.BrowserPath,
+		BaseURL:     cfg.Server.BaseURL,
+		CookieName:  cfg.Auth.CookieName,
+		Timeout:     cfg.Report.Timeout,
+		Log:         log,
+	}); err != nil {
+		log.Warn("pdf export unavailable", "error", err)
+	} else {
+		s.renderer = renderer
+	}
+
 	return s
 }
 
@@ -137,6 +156,17 @@ func (s *Server) Handler() http.Handler {
 	// Comparison is a read of several scenarios at once, so it sits beside
 	// them rather than under any one of them.
 	mux.HandleFunc("GET /api/projects/{projectID}/compare", project(model.RoleViewer, s.handleCompare))
+
+	// Reports are project-scoped definitions; exporting one renders it to PDF.
+	// Building and editing a report is an editor action; viewing and exporting
+	// is not, so a viewer can pull a PDF of results they can already see.
+	mux.HandleFunc("GET /api/projects/{projectID}/reports", project(model.RoleViewer, s.handleListReports))
+	mux.HandleFunc("POST /api/projects/{projectID}/reports", project(model.RoleEditor, s.handleCreateReport))
+	mux.HandleFunc("GET /api/projects/{projectID}/reports/{reportID}", project(model.RoleViewer, s.handleGetReport))
+	mux.HandleFunc("PATCH /api/projects/{projectID}/reports/{reportID}", project(model.RoleEditor, s.handleUpdateReport))
+	mux.HandleFunc("DELETE /api/projects/{projectID}/reports/{reportID}", project(model.RoleEditor, s.handleDeleteReport))
+	mux.HandleFunc("GET /api/projects/{projectID}/reports/{reportID}/pdf", project(model.RoleViewer, s.handleExportReport))
+	mux.HandleFunc("POST /api/projects/{projectID}/reports/export", project(model.RoleViewer, s.handleExportAdhoc))
 
 	mux.HandleFunc("GET /api/projects/{projectID}/events", project(model.RoleViewer, s.handleRunEvents))
 

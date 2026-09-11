@@ -34,6 +34,7 @@ type Store struct {
 	Models    *ModelStore
 	Scenarios *ScenarioStore
 	Runs      *RunStore
+	Reports   *ReportStore
 	Audit     *AuditStore
 }
 
@@ -47,6 +48,7 @@ func New(database *db.DB) *Store {
 	s.Models = &ModelStore{db: database}
 	s.Scenarios = &ScenarioStore{db: database}
 	s.Runs = &RunStore{db: database}
+	s.Reports = &ReportStore{db: database}
 	s.Audit = &AuditStore{db: database}
 	return s
 }

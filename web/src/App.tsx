@@ -7,6 +7,8 @@ import { ProjectPage } from '@/pages/ProjectPage'
 import { PlanCalibrate } from '@/pages/PlanCalibrate'
 import { RunViewer } from '@/pages/RunViewer'
 import { Compare } from '@/pages/Compare'
+import { Reports } from '@/pages/Reports'
+import { ReportPrint } from '@/print/ReportPrint'
 
 export function App() {
   return (
@@ -18,6 +20,19 @@ export function App() {
 
 function Shell() {
   const { user, loading } = useSession()
+  const { pathname } = useLocation()
+
+  // Print routes are loaded by the PDF renderer with a session cookie but no
+  // interactive session, so they render the document straight away: no app
+  // chrome, no loading screen, no sign-in gate to wait behind.
+  if (pathname.startsWith('/print/')) {
+    return (
+      <Routes>
+        <Route path="/print/projects/:projectId/reports/:reportId" element={<ReportPrint />} />
+        <Route path="/print/projects/:projectId/report" element={<ReportPrint />} />
+      </Routes>
+    )
+  }
 
   if (loading) {
     return (
@@ -45,6 +60,7 @@ function Shell() {
         <Route path="/projects/:projectId" element={<ProjectPage />} />
         <Route path="/projects/:projectId/plans/:planId" element={<PlanCalibrate />} />
         <Route path="/projects/:projectId/compare" element={<Compare />} />
+        <Route path="/projects/:projectId/reports" element={<Reports />} />
         {/* The viewer is full-bleed and manages its own scrolling. */}
         <Route path="/projects/:projectId/runs/:runId" element={<RunViewer />} />
         <Route path="*" element={<NotFound />} />
@@ -86,6 +102,12 @@ function TopBar() {
               className={({ isActive }) => (isActive ? 'active' : '')}
             >
               Compare
+            </NavLink>
+            <NavLink
+              to={`/projects/${projectId}/reports`}
+              className={({ isActive }) => (isActive ? 'active' : '')}
+            >
+              Reports
             </NavLink>
           </>
         )}

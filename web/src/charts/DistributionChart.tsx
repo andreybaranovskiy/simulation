@@ -44,12 +44,17 @@ export function DistributionChart({
   const min = Math.min(...all, ...rows.map((r) => r.ciLow))
   const max = Math.max(...all, ...rows.map((r) => r.ciHigh))
 
-  // The axis starts at zero when the values are near it, so a reader is not
+  // The axis starts at zero when the values sit near it, so a reader is not
   // shown a magnified sliver of the range and left to assume it is the whole
-  // story. Otherwise it frames the data with a margin.
-  const span = max - min
-  const lower = min > 0 && min < span ? 0 : min - span * 0.12
-  const upper = niceMax(max + span * 0.12)
+  // story. When the values instead cluster far above zero — a truck count near
+  // 313, say — it frames them tightly with a margin. The distinction matters:
+  // niceMax is for a zero-based axis, and applying it to a high, tight cluster
+  // would round the top out to a number far past the data and strand every
+  // point against the left edge.
+  const span = max - min || Math.max(Math.abs(max), 1)
+  const zeroBased = min > 0 && min < span
+  const lower = zeroBased ? 0 : min - span * 0.12
+  const upper = zeroBased ? niceMax(max + span * 0.12) : max + span * 0.12
 
   const width = 720
   const rowHeight = 34

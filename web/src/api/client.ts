@@ -7,6 +7,8 @@ import type {
   Manifest,
   Project,
   ProjectMember,
+  Report,
+  ReportInput,
   Role,
   Run,
   RunKPI,
@@ -223,6 +225,39 @@ export const api = {
 
   events: {
     url: (projectId: string) => `/api/projects/${projectId}/events`,
+  },
+
+  reports: {
+    list: (projectId: string) => get<Report[]>(`/api/projects/${projectId}/reports`),
+    get: (projectId: string, reportId: string) =>
+      get<Report>(`/api/projects/${projectId}/reports/${reportId}`),
+    create: (projectId: string, input: ReportInput) =>
+      post<Report>(`/api/projects/${projectId}/reports`, input),
+    update: (projectId: string, reportId: string, input: ReportInput) =>
+      patch<Report>(`/api/projects/${projectId}/reports/${reportId}`, input),
+    remove: (projectId: string, reportId: string) =>
+      del<void>(`/api/projects/${projectId}/reports/${reportId}`),
+
+    /** The download URL for a saved report's PDF. A plain link, so the browser
+     *  handles the download and its progress rather than buffering it in JS. */
+    pdfUrl: (projectId: string, reportId: string) =>
+      `/api/projects/${projectId}/reports/${reportId}/pdf`,
+
+    /** Exports a report that was assembled but not saved, returning the PDF as
+     *  a blob so a one-off export leaves no definition behind. */
+    exportAdhoc: async (projectId: string, input: ReportInput): Promise<Blob> => {
+      const response = await fetch(`/api/projects/${projectId}/reports/export`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/pdf' },
+        body: JSON.stringify(input),
+      })
+      if (!response.ok) {
+        const text = await response.text()
+        throw new ApiError(response.status, safeParse(text) as ApiErrorBody)
+      }
+      return response.blob()
+    },
   },
 
   /**

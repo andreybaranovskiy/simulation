@@ -1,0 +1,114 @@
+/*
+ * Print styling.
+ *
+ * The report keeps the app's dark surface rather than inverting to white paper.
+ * That is deliberate: the charts are validated against this exact surface, and
+ * printing them on white would mean a second palette that drifts out of step
+ * with the screen. A dark report is a coherent one, and the plan's whole reason
+ * for rendering the real SPA was that the charts in the PDF are the charts in
+ * the UI.
+ *
+ * Chrome supplies the page margins and the running header and footer; this file
+ * handles what falls inside them: the flow of blocks and where a page may break.
+ */
+
+@page {
+  /* The running header and footer live in these margins, set by the renderer.
+     A size here would fight the paper size the renderer already chose. */
+  margin: 0;
+}
+
+.print-root {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  padding: 6mm 0;
+}
+
+/* The title block opens the document and never shares a page with the first
+   section, so a report always starts with its name. */
+.print-title {
+  padding: 4mm 0 6mm;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 6mm;
+  break-after: avoid;
+}
+
+.print-kicker {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.print-title h1 {
+  font-size: 26px;
+  margin: 6px 0 0;
+  line-height: 1.15;
+}
+
+.print-subtitle {
+  font-size: 14px;
+  color: var(--text-dim);
+  margin: 8px 0 0;
+  max-width: 70ch;
+}
+
+.print-generated {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin: 10px 0 0;
+}
+
+/* A block is a card that would rather not be split across a page. print-inside
+   avoid keeps a chart with its heading; where a block is taller than a page the
+   browser still breaks it, which is correct. */
+.print-block {
+  break-inside: avoid;
+  margin-bottom: 6mm;
+}
+
+/* Cards on paper lose their drop shadow and heavy border: ink that reads as
+   noise once there is no screen glow behind it. */
+.print-root .card {
+  box-shadow: none;
+  border: 1px solid var(--line-soft);
+}
+
+.print-params {
+  margin-top: 12px;
+}
+
+/* Each distribution plot in a comparison is its own logical unit and should not
+   split from its label. */
+.print-dist {
+  break-inside: avoid;
+  margin-bottom: 14px;
+}
+
+.print-provenance {
+  break-inside: avoid;
+}
+
+.print-provenance table td {
+  border-bottom: none;
+  padding: 4px 10px;
+}
+
+.print-empty {
+  padding: 20mm 0;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.print-empty h2 {
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+/* The interactive tooltips and hover layers have no place on paper: nothing can
+   hover a printed page, and a stray tooltip would print frozen over a chart. */
+.print-root .chart-tooltip {
+  display: none !important;
+}

@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import { diffScale, divergingRGBA } from '@/charts/tokens'
 import { formatHeatValue, type HeatmapFile } from '@/viewer/heatmap'
+import { usePrintGate } from '@/print/PrintDocument'
 
 interface Side {
   id: string
@@ -45,6 +46,10 @@ export function HeatmapDiff({
     queryKey: ['heatmaps', projectId, other.id],
     queryFn: () => api.runs.aggregate<HeatmapFile>(projectId, other.id, 'heatmaps.json'),
   })
+
+  // When printed, this holds the report until both grids have loaded; on the
+  // interactive page there is no gate to register with, so it does nothing.
+  usePrintGate(!left.isLoading && !right.isLoading)
 
   // Only a metric both runs recorded can be differenced, and only if the grids
   // line up. Two scenarios on different plans produce grids of different

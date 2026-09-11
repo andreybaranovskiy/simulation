@@ -440,3 +440,43 @@ export interface Comparison {
   warnings?: string[]
   params: ComparedParam[]
 }
+
+// ---------------------------------------------------------------------------
+// Reports
+// ---------------------------------------------------------------------------
+
+export type ReportKind = 'scenario' | 'comparison'
+
+export interface Report {
+  id: string
+  projectId: string
+  name: string
+  subtitle: string
+  kind: ReportKind
+  scenarioIds: string[]
+  sections: string[]
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+  /** Filled in on read for the list view; not part of the stored definition. */
+  scenarioNames?: string[]
+}
+
+export interface ReportInput {
+  name: string
+  subtitle?: string
+  kind: ReportKind
+  scenarioIds: string[]
+  sections: string[]
+}
+
+/** The blocks a report can contain, matched to the server's section names. */
+export const REPORT_SECTIONS: Record<string, { label: string; kinds: ReportKind[]; hint: string }> = {
+  summary: { label: 'Summary', kinds: ['scenario', 'comparison'], hint: 'Headline numbers and what was changed.' },
+  distribution: { label: 'Replication spread', kinds: ['comparison'], hint: 'Every run as a point, with the confidence band.' },
+  kpis: { label: 'All measurements', kinds: ['scenario', 'comparison'], hint: 'The full table of results.' },
+  throughput: { label: 'Throughput over time', kinds: ['scenario', 'comparison'], hint: 'Arrivals against completions.' },
+  utilisation: { label: 'Resources over time', kinds: ['scenario'], hint: 'Per-resource Gantt.' },
+  heatmap: { label: 'Density on the plan', kinds: ['scenario'], hint: 'Where the activity concentrated.' },
+  difference: { label: 'Where they differ', kinds: ['comparison'], hint: 'The spatial difference between two scenarios.' },
+}
