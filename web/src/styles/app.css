@@ -759,3 +759,141 @@ tbody tr:hover {
     padding: 16px;
   }
 }
+
+/* ------------------------------------------------------------- comparison */
+
+.select-inline {
+  width: auto;
+  padding: 5px 9px;
+  font-size: 12px;
+}
+
+/* The scenario picker. Chips rather than a multi-select, because the choice is
+   the whole premise of the page and should be visible without opening
+   anything. */
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.picker-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+
+  background: #0a0f28;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.picker-item:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.picker-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.picker-item.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.picker-name {
+  font-weight: 600;
+}
+
+.picker-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.kpi-group + .kpi-group {
+  margin-top: 18px;
+}
+
+.kpi-group-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.delta-row {
+  cursor: pointer;
+}
+
+.delta-name {
+  font-weight: 500;
+}
+
+.delta-expand {
+  color: var(--text-faint);
+  margin-left: 8px;
+  font-size: 11px;
+}
+
+.delta-ci {
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+.delta-detail {
+  background: #0a0f28;
+  padding: 14px 12px 16px;
+}
+
+.baseline-tag {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+}
+
+/* A verdict is never colour alone: the word underneath carries it, and the
+   colour is there to make the table scannable. */
+.verdict {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.verdict-word {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.verdict.better {
+  color: var(--good);
+}
+
+.verdict.worse {
+  color: var(--bad);
+}
+
+/* A difference inside the noise is deliberately the quietest thing in the
+   row. It is not a finding, and it should not look like one. */
+.verdict.noise,
+.verdict.unknown {
+  color: var(--text-faint);
+}
+
+.verdict.neutral {
+  color: var(--text-dim);
+}

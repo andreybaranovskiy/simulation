@@ -1,4 +1,4 @@
-import { Navigate, NavLink, Route, Routes, useParams } from 'react-router-dom'
+import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 
 import { SessionProvider, useSession } from '@/state/session'
 import { SignIn } from '@/pages/SignIn'
@@ -6,6 +6,7 @@ import { Projects } from '@/pages/Projects'
 import { ProjectPage } from '@/pages/ProjectPage'
 import { PlanCalibrate } from '@/pages/PlanCalibrate'
 import { RunViewer } from '@/pages/RunViewer'
+import { Compare } from '@/pages/Compare'
 
 export function App() {
   return (
@@ -43,6 +44,7 @@ function Shell() {
         <Route path="/projects" element={<Projects />} />
         <Route path="/projects/:projectId" element={<ProjectPage />} />
         <Route path="/projects/:projectId/plans/:planId" element={<PlanCalibrate />} />
+        <Route path="/projects/:projectId/compare" element={<Compare />} />
         {/* The viewer is full-bleed and manages its own scrolling. */}
         <Route path="/projects/:projectId/runs/:runId" element={<RunViewer />} />
         <Route path="*" element={<NotFound />} />
@@ -53,7 +55,11 @@ function Shell() {
 
 function TopBar() {
   const { user, signOut } = useSession()
-  const { projectId } = useParams()
+
+  // The bar sits outside the route tree, so it has no route params of its own
+  // and has to read the project out of the path.
+  const { pathname } = useLocation()
+  const projectId = pathname.match(/^\/projects\/([^/]+)/)?.[1]
 
   return (
     <header className="topbar">
@@ -67,12 +73,21 @@ function TopBar() {
           Projects
         </NavLink>
         {projectId && (
-          <NavLink
-            to={`/projects/${projectId}`}
-            className={({ isActive }) => (isActive ? 'active' : '')}
-          >
-            Scenarios
-          </NavLink>
+          <>
+            <NavLink
+              to={`/projects/${projectId}`}
+              end
+              className={({ isActive }) => (isActive ? 'active' : '')}
+            >
+              Scenarios
+            </NavLink>
+            <NavLink
+              to={`/projects/${projectId}/compare`}
+              className={({ isActive }) => (isActive ? 'active' : '')}
+            >
+              Compare
+            </NavLink>
+          </>
         )}
       </nav>
 

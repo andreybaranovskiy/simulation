@@ -134,6 +134,10 @@ func (s *Server) Handler() http.Handler {
 	// one step, because there are no choices to make in between.
 	mux.HandleFunc("POST /api/projects/{projectID}/imports/animation", project(model.RoleEditor, s.handleImportAnimation))
 
+	// Comparison is a read of several scenarios at once, so it sits beside
+	// them rather than under any one of them.
+	mux.HandleFunc("GET /api/projects/{projectID}/compare", project(model.RoleViewer, s.handleCompare))
+
 	mux.HandleFunc("GET /api/projects/{projectID}/events", project(model.RoleViewer, s.handleRunEvents))
 
 	// Administration.

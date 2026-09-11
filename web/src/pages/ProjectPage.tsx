@@ -45,6 +45,10 @@ export function ProjectPage() {
 
   const canEdit = project.data?.role === 'owner' || project.data?.role === 'editor'
 
+  // Comparing needs results on both sides, so the entry point only appears
+  // once two scenarios actually have a finished run behind them.
+  const comparable = (scenarios.data ?? []).filter((s) => (s.runCount ?? 0) > 0)
+
   if (!projectId) return null
 
   return (
@@ -61,6 +65,18 @@ export function ProjectPage() {
             <span className="pill" title="Live progress is reconnecting.">
               <span className="dot" /> Offline
             </span>
+          )}
+
+          {comparable.length >= 2 && (
+            <Link
+              to={`/projects/${projectId}/compare?scenarios=${comparable
+                .slice(0, 2)
+                .map((s) => s.id)
+                .join(',')}`}
+              className="btn ghost"
+            >
+              Compare
+            </Link>
           )}
 
           {canEdit && (

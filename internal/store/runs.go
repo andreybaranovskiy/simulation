@@ -30,7 +30,7 @@ func (s *RunStore) Create(ctx context.Context, r *model.Run) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO runs (`+runColumns+`)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.ProjectID, r.ScenarioID, r.Replication, r.Seed, r.Status,
+		r.ID, r.ProjectID, r.ScenarioID, r.Replication, unsigned(r.Seed), r.Status,
 		r.QueuedAt, nil, nil, 0, 0, 0, 0, 0, 0, r.EngineVersion, r.ArtifactDir,
 		nil, nil, r.CreatedBy)
 	if err != nil {
@@ -315,7 +315,7 @@ func scanRun(sc scanner, r *model.Run) error {
 	var started, finished sql.NullTime
 	var errText sql.NullString
 	var warnings []byte
-	var seed int64
+	var seed unsignedInt64
 
 	err := sc.Scan(&r.ID, &r.ProjectID, &r.ScenarioID, &r.Replication, &seed, &r.Status,
 		&r.QueuedAt, &started, &finished, &r.Progress, &r.SimTime, &r.EntityCount,
@@ -333,7 +333,7 @@ func scanRunWithScenario(sc scanner, r *model.Run) error {
 	var started, finished sql.NullTime
 	var errText sql.NullString
 	var warnings []byte
-	var seed int64
+	var seed unsignedInt64
 
 	err := sc.Scan(&r.ID, &r.ProjectID, &r.ScenarioID, &r.Replication, &seed, &r.Status,
 		&r.QueuedAt, &started, &finished, &r.Progress, &r.SimTime, &r.EntityCount,
@@ -347,12 +347,10 @@ func scanRunWithScenario(sc scanner, r *model.Run) error {
 	return nil
 }
 
-func applyRunScan(r *model.Run, seed int64, started, finished sql.NullTime,
+func applyRunScan(r *model.Run, seed unsignedInt64, started, finished sql.NullTime,
 	errText sql.NullString, warnings []byte) {
 
-	// The seed column is unsigned but the driver returns a signed value, so
-	// the conversion has to be explicit for a seed above the signed maximum.
-	r.Seed = uint64(seed)
+	r.Seed = seed.N
 	r.StartedAt = timePtr(started)
 	r.FinishedAt = timePtr(finished)
 	r.Error = errText.String

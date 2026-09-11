@@ -512,3 +512,72 @@
     padding-right: 70px;
   }
 }
+
+/* ------------------------------------------------------ distribution plot */
+
+.distribution .chart-svg {
+  overflow: visible;
+}
+
+.dist-label {
+  font-size: 11px;
+  fill: #a9b6e8;
+  font-family: var(--font);
+}
+
+/* The legend explains the three marks, since none of them is a plain line. */
+.legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3987e5;
+  opacity: 0.65;
+}
+
+.legend-mean {
+  width: 2px;
+  height: 12px;
+  background: #3987e5;
+}
+
+.legend-band {
+  width: 16px;
+  height: 10px;
+  border-radius: 2px;
+  background: #3987e5;
+  opacity: 0.16;
+}
+
+/* ---------------------------------------------------------- difference map */
+
+.diff-canvas {
+  position: relative;
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: #0a0f28;
+  overflow: hidden;
+}
+
+.diff-canvas canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* The grid is coarse by design; smoothing turns cells into a field rather
+     than a spreadsheet. */
+  image-rendering: auto;
+}
+
+.diff-legend .legend-swatch.low {
+  background: #3987e5;
+}
+
+.diff-legend .legend-swatch.mid {
+  background: #1a2348;
+  border: 1px solid var(--line);
+}
+
+.diff-legend .legend-swatch.high {
+  background: #d95926;
+}

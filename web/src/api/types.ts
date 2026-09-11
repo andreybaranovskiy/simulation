@@ -370,3 +370,73 @@ export interface ApiErrorBody {
   code?: string
   fields?: Record<string, string>
 }
+
+// ---------------------------------------------------------------------------
+// Comparison
+// ---------------------------------------------------------------------------
+
+/**
+ * One scenario's replications of one measure, with what can be said about the
+ * mean from them.
+ */
+export interface Sample {
+  values: number[]
+  n: number
+  mean: number
+  stdDev: number
+  min: number
+  max: number
+  ciLow: number
+  ciHigh: number
+  /** False below two replications, where an interval would be a fiction. */
+  hasInterval: boolean
+}
+
+/** A change against the baseline, and whether it can be told from noise. */
+export interface Difference {
+  delta: number
+  percent: number
+  ciLow: number
+  ciHigh: number
+  /** True when the interval for the difference excludes zero. */
+  distinguishable: boolean
+  hasInterval: boolean
+  /** Only set for a distinguishable change on a measure with a direction. */
+  better?: boolean
+}
+
+export interface ComparedScenario {
+  id: string
+  name: string
+  runIds: string[]
+  replications: number
+  sampleRunId: string
+  params: Record<string, number>
+}
+
+export interface ComparedParam {
+  id: string
+  values: Record<string, number>
+  differs: boolean
+}
+
+export interface ComparedKPI {
+  key: string
+  label: string
+  unit: string
+  group: string
+  better?: 'lower' | 'higher'
+  decimals: number
+  headline: boolean
+  samples: Record<string, Sample>
+  differences: Record<string, Difference>
+}
+
+export interface Comparison {
+  scenarios: ComparedScenario[]
+  baselineId: string
+  kpis: ComparedKPI[]
+  note: string
+  warnings?: string[]
+  params: ComparedParam[]
+}

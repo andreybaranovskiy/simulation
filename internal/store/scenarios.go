@@ -32,7 +32,7 @@ func (s *ScenarioStore) Create(ctx context.Context, sc *model.Scenario) error {
 		`INSERT INTO scenarios (`+scenarioColumns+`)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sc.ID, sc.ProjectID, sc.ModelID, sc.Name, sc.Description, []byte(sc.Params),
-		nullOrUint64(sc.Seed), sc.Replications, nullOrString(sc.SitePlanID),
+		unsignedOrNil(sc.Seed), sc.Replications, nullOrString(sc.SitePlanID),
 		sc.SortOrder, nil, sc.CreatedBy, sc.CreatedAt, sc.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create scenario: %w", mapErr(err))
@@ -89,14 +89,14 @@ WHERE s.project_id = ?`
 	for rows.Next() {
 		var sc model.Scenario
 		var params []byte
-		var seed sql.NullInt64
+		var seed unsignedInt64
 		var planID sql.NullString
 		var archived sql.NullTime
 
 		var runID, runStatus, runError sql.NullString
 		var runProgress sql.NullFloat64
 		var runReplication sql.NullInt64
-		var runSeed sql.NullInt64
+		var runSeed unsignedInt64
 		var runQueued, runStarted, runFinished sql.NullTime
 		var runDuration, runEntities sql.NullInt64
 		var runSimTime sql.NullFloat64
@@ -123,7 +123,7 @@ WHERE s.project_id = ?`
 				Status:       model.RunStatus(runStatus.String),
 				Progress:     runProgress.Float64,
 				Replication:  int(runReplication.Int64),
-				Seed:         uint64(runSeed.Int64),
+				Seed:         runSeed.N,
 				QueuedAt:     runQueued.Time.UTC(),
 				StartedAt:    timePtr(runStarted),
 				FinishedAt:   timePtr(runFinished),
@@ -151,7 +151,7 @@ func (s *ScenarioStore) Update(ctx context.Context, sc *model.Scenario) error {
 		 SET name = ?, description = ?, params = ?, seed = ?, replications = ?,
 		     site_plan_id = ?, sort_order = ?, updated_at = ?
 		 WHERE id = ?`,
-		sc.Name, sc.Description, []byte(sc.Params), nullOrUint64(sc.Seed),
+		sc.Name, sc.Description, []byte(sc.Params), unsignedOrNil(sc.Seed),
 		sc.Replications, nullOrString(sc.SitePlanID), sc.SortOrder, sc.UpdatedAt, sc.ID)
 	return affectedOne(res, err, "update scenario")
 }
@@ -195,7 +195,7 @@ func (s *ScenarioStore) Duplicate(ctx context.Context, id, name, userID string) 
 
 func scanScenario(sc scanner, out *model.Scenario) error {
 	var params []byte
-	var seed sql.NullInt64
+	var seed unsignedInt64
 	var planID sql.NullString
 	var archived sql.NullTime
 
@@ -210,7 +210,7 @@ func scanScenario(sc scanner, out *model.Scenario) error {
 	return nil
 }
 
-func applyScenarioScan(sc *model.Scenario, params []byte, seed sql.NullInt64, planID sql.NullString, archived sql.NullTime) {
+func applyScenarioScan(sc *model.Scenario, params []byte, seed unsignedInt64, planID sql.NullString, archived sql.NullTime) {
 	if len(params) > 0 {
 		sc.Params = append([]byte(nil), params...)
 	} else {
@@ -218,21 +218,11 @@ func applyScenarioScan(sc *model.Scenario, params []byte, seed sql.NullInt64, pl
 	}
 
 	if seed.Valid {
-		// The column is unsigned but the driver hands back a signed value, so
-		// the round trip has to go through the same width to survive a seed
-		// above the signed maximum.
-		v := uint64(seed.Int64)
+		v := seed.N
 		sc.Seed = &v
 	}
 
 	sc.SitePlanID = strPtr(planID)
 	sc.ArchivedAt = timePtr(archived)
 	sc.CreatedAt, sc.UpdatedAt = sc.CreatedAt.UTC(), sc.UpdatedAt.UTC()
-}
-
-func nullOrUint64(p *uint64) any {
-	if p == nil {
-		return nil
-	}
-	return *p
 }

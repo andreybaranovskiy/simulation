@@ -3,6 +3,7 @@ import type {
   Asset,
   AssetKind,
   AuthConfig,
+  Comparison,
   Manifest,
   Project,
   ProjectMember,
@@ -223,6 +224,16 @@ export const api = {
   events: {
     url: (projectId: string) => `/api/projects/${projectId}/events`,
   },
+
+  /**
+   * Compares scenarios, not runs. A scenario's replications are the same
+   * experiment repeated, and the spread between them is what decides whether a
+   * difference between scenarios means anything.
+   */
+  compare: (projectId: string, scenarioIds: string[]) =>
+    get<Comparison>(
+      `/api/projects/${projectId}/compare?scenarios=${encodeURIComponent(scenarioIds.join(','))}`,
+    ),
 }
 
 export interface ScenarioInput {

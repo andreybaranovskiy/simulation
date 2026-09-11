@@ -134,3 +134,74 @@ export function niceMax(value: number): number {
   if (f <= 5) return 5 * base
   return 10 * base
 }
+
+/**
+ * The diverging ramp, for a difference between two scenarios.
+ *
+ * Two hues and a neutral midpoint, never a rainbow. The midpoint is the card
+ * surface rather than a grey, which is the honest choice for a difference
+ * field: a cell where nothing changed should show nothing at all, not a
+ * coloured square a reader has to decode as "zero".
+ *
+ * Index 0 is that shared midpoint, so both sides start from the same place and
+ * a small change in either direction is equally quiet. The two ends are the
+ * categorical blue and orange, which are already on record as separable under
+ * every colour-vision check this app's palette was validated for.
+ */
+export const DIVERGING_LOW = [
+  '#1a2348',
+  '#1c3a6b',
+  '#22508f',
+  '#2a68b5',
+  '#3987e5',
+  '#6da7ec',
+  '#a6c9f4',
+] as const
+
+export const DIVERGING_HIGH = [
+  '#1a2348',
+  '#5a2712',
+  '#83381a',
+  '#ab4620',
+  '#d95926',
+  '#e88459',
+  '#f4ad8c',
+] as const
+
+/**
+ * Samples the diverging ramp at a signed position in −1 to 1.
+ *
+ * The returned alpha is the point of the signature: it climbs with magnitude,
+ * so a difference field fades out where the two scenarios agree instead of
+ * painting the whole site.
+ */
+export function divergingRGBA(t: number): [number, number, number, number] {
+  if (!Number.isFinite(t) || t === 0) return [0, 0, 0, 0]
+
+  const magnitude = Math.min(1, Math.abs(t))
+  const ramp = t < 0 ? DIVERGING_LOW : DIVERGING_HIGH
+
+  const index = Math.max(1, Math.round(magnitude * (ramp.length - 1)))
+  const hex = ramp[index]
+
+  return [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+    Math.round(Math.min(1, magnitude * 1.25) * 235),
+  ]
+}
+
+/**
+ * Compresses a signed difference into the diverging ramp.
+ *
+ * The same square root as the sequential scale, and for the same reason: a few
+ * cells always dominate, and a linear scale would collapse everything else
+ * into the midpoint.
+ */
+export function diffScale(value: number, scale: number): number {
+  if (scale <= 0 || value === 0) return 0
+
+  const t = Math.sqrt(Math.min(1, Math.abs(value) / scale))
+  return value < 0 ? -t : t
+}
