@@ -97,9 +97,22 @@ interface Route {
   steps?: Step[]
   [key: string]: unknown
 }
+interface EntityType {
+  id: string
+  label?: string
+}
 interface Source {
   id: string
   label?: string
+  entity?: string
+  node?: string
+  arrival?: Dist
+  batch?: Dist
+  start?: number
+  stop?: number
+  limit?: number
+  route?: string
+  [key: string]: unknown
 }
 
 // The spec is kept whole and only its geometry and operating parameters are
@@ -112,6 +125,7 @@ interface SpecModel {
   resources?: Resource[]
   routes?: Route[]
   sources?: Source[]
+  entityTypes?: EntityType[]
   [key: string]: unknown
 }
 
@@ -236,7 +250,7 @@ function Editor({
   const plan = useMemo(() => plans.find((p) => p.id === planId) ?? null, [plans, planId])
   const [planImage, setPlanImage] = useState<HTMLImageElement | null>(null)
 
-  const [inspectorTab, setInspectorTab] = useState<'element' | 'routes'>('element')
+  const [inspectorTab, setInspectorTab] = useState<'element' | 'sources' | 'routes'>('element')
 
   const nodes = spec.nodes ?? []
   const links = spec.links ?? []
@@ -244,6 +258,7 @@ function Editor({
   const resources = spec.resources ?? []
   const routes = spec.routes ?? []
   const sources = spec.sources ?? []
+  const entityTypes = spec.entityTypes ?? []
   const resourceNodes = useMemo(() => {
     const set = new Set<string>()
     for (const r of spec.resources ?? []) if (r.node) set.add(r.node)
@@ -350,6 +365,8 @@ function Editor({
   const removeResource = (id: string) => patch({ resources: resources.filter((r) => r.id !== id) })
   const setRoute = (id: string, values: Partial<Route>) =>
     patch({ routes: routes.map((r) => (r.id === id ? { ...r, ...values } : r)) })
+  const setSource = (id: string, values: Partial<Source>) =>
+    patch({ sources: sources.map((sc) => (sc.id === id ? { ...sc, ...values } : sc)) })
 
   // ---- pointer interaction ------------------------------------------------
   const drag = useRef<
@@ -695,6 +712,8 @@ function Editor({
           onAddResource={addResource}
           onRemoveResource={removeResource}
           onRoute={setRoute}
+          entityTypes={entityTypes}
+          onSource={setSource}
           saveError={saveError}
         />
       </div>
@@ -703,14 +722,15 @@ function Editor({
 }
 
 interface InspectorProps {
-  tab: 'element' | 'routes'
-  setTab: (tab: 'element' | 'routes') => void
+  tab: 'element' | 'sources' | 'routes'
+  setTab: (tab: 'element' | 'sources' | 'routes') => void
   selection: Selection
   nodes: Node[]
   zones: Zone[]
   resources: Resource[]
   routes: Route[]
   sources: Source[]
+  entityTypes: EntityType[]
   onNode: (id: string, values: Partial<Node>) => void
   onZone: (id: string, values: Partial<Zone>) => void
   onDelete: (target: NonNullable<Selection>) => void
@@ -718,6 +738,7 @@ interface InspectorProps {
   onAddResource: (nodeId: string) => void
   onRemoveResource: (id: string) => void
   onRoute: (id: string, values: Partial<Route>) => void
+  onSource: (id: string, values: Partial<Source>) => void
   saveError: string | null
 }
 
@@ -729,6 +750,9 @@ function Inspector(props: InspectorProps) {
         <button className={`segment ${tab === 'element' ? 'on' : ''}`} style={{ flex: 1 }} onClick={() => setTab('element')}>
           Selection
         </button>
+        <button className={`segment ${tab === 'sources' ? 'on' : ''}`} style={{ flex: 1 }} onClick={() => setTab('sources')}>
+          Sources
+        </button>
         <button className={`segment ${tab === 'routes' ? 'on' : ''}`} style={{ flex: 1 }} onClick={() => setTab('routes')}>
           Routes
         </button>
@@ -736,8 +760,132 @@ function Inspector(props: InspectorProps) {
 
       {saveError && <div className="banner error">{saveError}</div>}
 
-      {tab === 'routes' ? <RoutesPanel {...props} /> : <SelectionPanel {...props} />}
+      {tab === 'routes' ? (
+        <RoutesPanel {...props} />
+      ) : tab === 'sources' ? (
+        <SourcesPanel {...props} />
+      ) : (
+        <SelectionPanel {...props} />
+      )}
     </aside>
+  )
+}
+
+/**
+ * Edits the sources: where entities enter the model and how often. The arrival
+ * is a distribution of the gap between arrivals, so an exponential gap with a
+ * mean of 45 seconds is a Poisson stream averaging one every 45 seconds — the
+ * usual way demand is described. Batch, a start-and-stop window, and a total
+ * limit shape it further.
+ */
+function SourcesPanel({ sources, nodes, entityTypes, routes, onSource }: InspectorProps) {
+  const [openId, setOpenId] = useState<string | null>(sources[0]?.id ?? null)
+
+  if (sources.length === 0) {
+    return <p className="faint">This model has no sources to edit.</p>
+  }
+
+  const source = sources.find((s) => s.id === openId) ?? sources[0]
+  const batched = source.batch !== undefined
+  const windowed = (source.start ?? 0) > 0 || (source.stop ?? 0) > 0
+
+  return (
+    <>
+      <Field label="Source">
+        <select value={source.id} onChange={(e) => setOpenId(e.target.value)}>
+          {sources.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.label ?? s.id}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <div className="row" style={{ gap: 8 }}>
+        <Field label="Entity">
+          <select value={source.entity ?? ''} onChange={(e) => onSource(source.id, { entity: e.target.value })}>
+            <option value="">Choose…</option>
+            {entityTypes.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label ?? t.id}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Enters at">
+          <select value={source.node ?? ''} onChange={(e) => onSource(source.id, { node: e.target.value })}>
+            <option value="">Choose a node…</option>
+            {nodes.map((n) => (
+              <option key={n.id} value={n.id}>
+                {n.label ?? n.id}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+
+      <span className="field-label" style={{ marginTop: 4 }}>
+        Gap between arrivals
+      </span>
+      <DistEditor
+        dist={source.arrival ?? { distribution: 'exponential', mean: 60 }}
+        onChange={(d) => onSource(source.id, { arrival: d })}
+      />
+
+      <Field label="Route">
+        <select value={source.route ?? ''} onChange={(e) => onSource(source.id, { route: e.target.value })}>
+          <option value="">The route that names this source</option>
+          {routes.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.label ?? r.id}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <label className="toggle-row">
+        <input
+          type="checkbox"
+          checked={batched}
+          onChange={(e) => onSource(source.id, { batch: e.target.checked ? { distribution: 'constant', value: 2 } : undefined })}
+        />
+        <span>Arrive in batches</span>
+      </label>
+      {batched && (
+        <>
+          <span className="field-label">Batch size</span>
+          <DistEditor dist={source.batch ?? { distribution: 'constant', value: 2 }} onChange={(d) => onSource(source.id, { batch: d })} />
+        </>
+      )}
+
+      <label className="toggle-row">
+        <input
+          type="checkbox"
+          checked={windowed}
+          onChange={(e) => onSource(source.id, e.target.checked ? { start: 0, stop: 3600 } : { start: 0, stop: 0 })}
+        />
+        <span>Only active for a window</span>
+      </label>
+      {windowed && (
+        <div className="row" style={{ gap: 8 }}>
+          <Field label="Start (s)">
+            <input type="number" min={0} value={source.start ?? 0} onChange={(e) => onSource(source.id, { start: Math.max(0, Number(e.target.value) || 0) })} />
+          </Field>
+          <Field label="Stop (s)">
+            <input type="number" min={0} value={source.stop ?? 0} onChange={(e) => onSource(source.id, { stop: Math.max(0, Number(e.target.value) || 0) })} />
+          </Field>
+        </div>
+      )}
+
+      <Field label="Limit (0 = unlimited)">
+        <input
+          type="number"
+          min={0}
+          value={source.limit ?? 0}
+          onChange={(e) => onSource(source.id, { limit: Math.max(0, Math.round(Number(e.target.value) || 0)) })}
+        />
+      </Field>
+    </>
   )
 }
 

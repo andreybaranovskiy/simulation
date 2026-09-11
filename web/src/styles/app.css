@@ -1343,3 +1343,19 @@ tbody tr:hover {
   flex: 1;
   min-width: 0;
 }
+
+/* A checkbox row for optional source settings. */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.toggle-row input {
+  width: auto;
+  accent-color: var(--accent);
+}
