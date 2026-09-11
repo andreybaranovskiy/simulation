@@ -229,6 +229,7 @@ func newBuilder(dir Dir, header trace.Header, endTime float64, opts BuildOptions
 
 	b.series = analytics.NewBucketer(b.startTime, endTime, opts.SeriesBuckets)
 	b.gantt = analytics.NewGantt(opts.MaxGanttIntervals)
+	b.gantt.MeasureFrom = header.WarmUp
 	for _, r := range header.Resources {
 		b.gantt.Declare(r.ID, r.Label, r.Capacity)
 	}

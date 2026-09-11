@@ -1,6 +1,8 @@
 import type { ClassInfo, Manifest, SitePlan } from '@/api/types'
 import { EntityState, stateColors } from '@/api/types'
 import type { EntityAt } from './playback'
+import type { HeatmapRenderer } from './heatmap'
+import type { PathRenderer } from './paths'
 
 /**
  * The top-down plan view.
@@ -25,6 +27,16 @@ export interface View2DOptions {
    *  into something a reader can see direction and speed in. */
   showTrails: boolean
   planOpacity: number
+
+  /** Aggregate overlays. These show the whole run at once, which is a
+   *  different question from where things are at this instant, so turning one
+   *  on dims the entity marks rather than competing with them. */
+  showHeatmap: boolean
+  heatmapOpacity: number
+  showPaths: boolean
+  /** Grows the journey traces alongside playback instead of showing the
+   *  finished picture from the first frame. */
+  pathsFollowClock: boolean
 }
 
 export const DEFAULT_2D_OPTIONS: View2DOptions = {
@@ -35,6 +47,10 @@ export const DEFAULT_2D_OPTIONS: View2DOptions = {
   showPlan: true,
   showTrails: true,
   planOpacity: 0.55,
+  showHeatmap: false,
+  heatmapOpacity: 0.85,
+  showPaths: false,
+  pathsFollowClock: false,
 }
 
 /** The pan and zoom state, in world metres. */
@@ -52,6 +68,9 @@ export class Scene2D {
   private manifest: Manifest | null = null
   private plan: SitePlan | null = null
   private planImage: HTMLImageElement | null = null
+
+  private heatmap: HeatmapRenderer | null = null
+  private paths: PathRenderer | null = null
 
   private options: View2DOptions = { ...DEFAULT_2D_OPTIONS }
   private hiddenClasses = new Set<number>()
@@ -85,6 +104,16 @@ export class Scene2D {
 
   setHiddenClasses(hidden: Set<number>) {
     this.hiddenClasses = hidden
+  }
+
+  setOverlays(heatmap: HeatmapRenderer | null, paths: PathRenderer | null) {
+    this.heatmap = heatmap
+    this.paths = paths
+  }
+
+  /** Whether an aggregate overlay is on, which the entity marks defer to. */
+  private get overlayActive(): boolean {
+    return (this.options.showHeatmap && !!this.heatmap?.current) || this.options.showPaths
   }
 
   build(manifest: Manifest) {
@@ -128,11 +157,19 @@ export class Scene2D {
     this.camera.centerY = (b.minY + b.maxY) / 2
   }
 
-  /** Zooms about a screen point, so the point under the cursor stays put. */
+  /**
+   * Zooms about a screen point, so the point under the cursor stays put.
+   *
+   * factor is a magnification: above one moves closer. The camera stores
+   * metres per pixel, which runs the other way, so the factor is inverted
+   * here rather than at each call site. Getting that backwards made the wheel
+   * zoom out, which every map in the world has taught people means the
+   * opposite.
+   */
   zoomAt(screenX: number, screenY: number, factor: number) {
     const before = this.toWorld(screenX, screenY)
 
-    this.camera.scale = clamp(this.camera.scale * factor, 0.002, 500)
+    this.camera.scale = clamp(this.camera.scale / factor, 0.002, 500)
 
     const after = this.toWorld(screenX, screenY)
     this.camera.centerX += before.x - after.x
@@ -225,11 +262,29 @@ export class Scene2D {
     // the earliest moment the view can be framed correctly.
     if (!this.framed) this.fitToBounds()
 
+    const toScreen = (x: number, y: number) => this.toScreen(x, y)
+
     this.drawPlan(ctx)
+
+    // The heatmap sits directly on the plan, under everything that names a
+    // place, so labels and markers stay readable on top of it.
+    if (this.options.showHeatmap && this.heatmap) {
+      this.heatmap.render(ctx, toScreen, this.options.heatmapOpacity)
+    }
+
+    if (this.options.showPaths && this.paths) {
+      this.paths.render(
+        ctx,
+        toScreen,
+        1,
+        this.options.pathsFollowClock ? time : undefined,
+      )
+    }
+
     this.drawZones(ctx)
     this.drawNodes(ctx)
 
-    if (this.options.showTrails) {
+    if (this.options.showTrails && !this.overlayActive) {
       this.updateTrails(entities, time)
       this.drawTrails(ctx)
     }
@@ -411,6 +466,11 @@ export class Scene2D {
 
     ctx.save()
 
+    // With an aggregate overlay up, the marks become context for it rather
+    // than the subject, so they step back instead of fighting it for
+    // attention.
+    if (this.overlayActive) ctx.globalAlpha = 0.55
+
     for (const e of entities) {
       if (this.hiddenClasses.has(e.cls)) continue
 
@@ -440,6 +500,21 @@ export class Scene2D {
         ctx.restore()
       } else {
         const radius = emphasised ? 5 : 3
+
+        // A surface ring keeps a mark legible wherever it crosses a heatmap
+        // cell or another mark.
+        if (this.overlayActive) {
+          ctx.beginPath()
+          ctx.arc(p.x, p.y, radius + 1.5, 0, Math.PI * 2)
+          ctx.fillStyle = '#0b1020'
+          ctx.fill()
+          ctx.fillStyle = emphasised
+            ? '#ffffff'
+            : this.options.colorByState
+              ? stateColors[e.state as EntityState] ?? '#6b7590'
+              : info?.color ?? '#4c8dff'
+        }
+
         ctx.beginPath()
         ctx.arc(p.x, p.y, radius, 0, Math.PI * 2)
         ctx.fill()

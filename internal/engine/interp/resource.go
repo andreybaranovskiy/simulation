@@ -31,6 +31,11 @@ type resource struct {
 	// x and y are where the resource sits, used to place queued entities.
 	x, y, z float64
 
+	// measureFrom is when the statistics start counting: the end of the
+	// warm-up. A queueing system starts empty, and that transient is not the
+	// steady state anyone wants reported.
+	measureFrom float64
+
 	// Counters feeding the run's KPIs.
 	seized      int
 	balked      int
@@ -276,18 +281,34 @@ func (r *resource) sortQueue() {
 // accountUntil integrates the occupancy and queue length up to now, which is
 // how time-weighted utilisation and average queue length are computed exactly
 // rather than by sampling.
+//
+// Only the part of the interval after the warm-up counts towards the
+// integrals. Accumulating over the whole run and then dividing by the measured
+// period alone would inflate every utilisation by exactly the warm-up's share
+// of the run, and the number would disagree with a chart of the same thing.
 func (r *resource) accountUntil(now float64) {
 	if now <= r.lastChange {
 		r.lastChange = now
 		return
 	}
-	elapsed := now - r.lastChange
 
-	r.busyTimeSum += float64(r.busy) * elapsed
-	r.queueArea += float64(r.liveQueueLen()) * elapsed
-	if r.down {
-		r.downtime += elapsed
+	from := r.lastChange
+	if from < r.measureFrom {
+		from = r.measureFrom
 	}
+
+	if now > from {
+		measured := now - from
+		r.busyTimeSum += float64(r.busy) * measured
+		r.queueArea += float64(r.liveQueueLen()) * measured
+	}
+
+	// Downtime is a fact about the run rather than a statistic about steady
+	// state, so it counts from the first second.
+	if r.down {
+		r.downtime += now - r.lastChange
+	}
+
 	r.lastChange = now
 }
 

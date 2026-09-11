@@ -486,9 +486,12 @@ tbody tr:hover {
 
 /* ---------------------------------------------------------------- viewer */
 
+/* Flex rather than fixed grid rows: the viewer gained an overlay bar, and a
+   grid with a counted number of rows silently collapses the pane that was
+   supposed to take the remaining space when another child appears. */
 .viewer {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
+  display: flex;
+  flex-direction: column;
   height: 100%;
   overflow: hidden;
 }
@@ -501,12 +504,15 @@ tbody tr:hover {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
+  flex: none;
 }
 
 .viewer-body {
   position: relative;
   overflow: hidden;
   display: grid;
+  flex: 1;
+  min-height: 0;
 }
 
 .viewer-body.split {
@@ -616,6 +622,7 @@ tbody tr:hover {
   padding: 10px 14px;
   background: var(--panel);
   border-top: 1px solid var(--line);
+  flex: none;
 }
 
 .timeline-bar input[type='range'] {

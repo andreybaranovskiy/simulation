@@ -11,15 +11,15 @@ Windows Server with MySQL 8.
 
 ## Status
 
-The project is being built in phases. Phases 1 to 3 are complete.
+The project is being built in phases. Phases 1 to 4 are complete.
 
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Accounts, projects, roles, asset storage, plan georeferencing | Done |
 | 2 | godes engine, model spec, run pipeline, artifact format | Done |
 | 3 | React frontend, 3D viewer, synchronized 2D plan view | Done |
-| 4 | Heatmaps, resource Gantt, spaghetti paths, KPI dashboard | Next |
-| 5 | Scenario comparison | |
+| 4 | Heatmaps, resource Gantt, spaghetti paths, KPI dashboard | Done |
+| 5 | Scenario comparison | Next |
 | 6 | PDF report export | |
 | 7 | IIS deployment kit, admin-gated Go model upload | |
 
@@ -101,6 +101,21 @@ every live entity's motion in progress, so seeking to hour six is one fetch
 rather than replaying the first six hours. Motion is stored as spans the viewer
 interpolates, which keeps size tied to how often entities change direction
 rather than to a frame rate.
+
+## Chart colours
+
+Every chart colour came out of the palette validator, not out of taste. The
+tokens live in `web/src/charts/tokens.ts` with the run on record. Re-run it
+before changing any of them:
+
+```bash
+node scripts/validate_palette.js "#3987e5,#d95926,#199e70" --mode dark --surface "#0f1430" --pairs all
+```
+
+Colour encodes magnitude wherever it can: heatmaps, the Gantt and the meters
+all share one sequential ramp, so "busy" looks the same everywhere. Categorical
+hues are reserved for series identity and capped at three, which is the number
+that validates when any two marks can end up side by side.
 
 ## Layout
 

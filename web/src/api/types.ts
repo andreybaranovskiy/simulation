@@ -191,6 +191,18 @@ export interface RunKPI {
   decimals: number
   headline: boolean
   resourceId?: string
+  /** Only the run's own KPI file carries this. The database rows leave it out
+   *  because it is a property of the measure, not of the run, and duplicating
+   *  it per run would let the two drift apart. */
+  description?: string
+}
+
+/** A run's full KPI set, as stored in its aggregate file. */
+export interface KPISet {
+  kpis: RunKPI[]
+  /** Caveats that change how the numbers should be read, such as a run that
+   *  hit its entity limit and is therefore a lower bound. */
+  notes?: string[]
 }
 
 /** Live progress from the server-sent event stream. */

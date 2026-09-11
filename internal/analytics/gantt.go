@@ -11,6 +11,12 @@ type Gantt struct {
 	// otherwise produce a chart no browser can draw and no eye can read.
 	MaxIntervals int
 
+	// MeasureFrom is when the summary percentages start counting: the end of
+	// the warm-up, matching what the engine reports. The bar still draws the
+	// whole run, because hiding the start would leave a reader wondering what
+	// the chart was not showing.
+	MeasureFrom float64
+
 	resources []*ganttResource
 	index     map[string]*ganttResource
 }
@@ -113,16 +119,23 @@ func (g *Gantt) Observe(id string, t float64, busy, queued int, down bool) {
 	}
 
 	r.current.End = t
-	r.closeInterval(g.MaxIntervals)
+	r.closeInterval(g.MaxIntervals, g.MeasureFrom)
 	r.current = GanttInterval{Start: t, End: t, Busy: busy, Queued: queued, Down: down}
 }
 
 // closeInterval files the current stretch, dropping anything narrower than the
 // current threshold and widening that threshold when the row gets too long.
-func (r *ganttResource) closeInterval(maxIntervals int) {
+func (r *ganttResource) closeInterval(maxIntervals int, measureFrom float64) {
 	width := r.current.End - r.current.Start
 
-	r.busyTime += float64(r.current.Busy) * width
+	from := r.current.Start
+	if from < measureFrom {
+		from = measureFrom
+	}
+	if r.current.End > from {
+		r.busyTime += float64(r.current.Busy) * (r.current.End - from)
+	}
+
 	if r.current.Down {
 		r.downTime += width
 	}
@@ -214,7 +227,7 @@ func (g *Gantt) Close(endTime float64) {
 			if endTime > r.current.End {
 				r.current.End = endTime
 			}
-			r.closeInterval(g.MaxIntervals)
+			r.closeInterval(g.MaxIntervals, g.MeasureFrom)
 			r.open = false
 		}
 	}
@@ -222,7 +235,10 @@ func (g *Gantt) Close(endTime float64) {
 
 // Rows returns the finished chart.
 func (g *Gantt) Rows(startTime, endTime float64) []GanttRow {
-	duration := math.Max(endTime-startTime, 1)
+	// The percentages describe the measured period, the same window the
+	// engine's utilisation KPI uses, so the chart and the number agree.
+	measureStart := math.Max(startTime, g.MeasureFrom)
+	duration := math.Max(endTime-measureStart, 1)
 	out := make([]GanttRow, 0, len(g.resources))
 
 	for _, r := range g.resources {

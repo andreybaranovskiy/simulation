@@ -8,9 +8,13 @@ import { EntityState, stateColors, stateNames } from '@/api/types'
 import { Playback, type EntityAt } from '@/viewer/playback'
 import { Scene3D } from '@/viewer/scene3d'
 import { DEFAULT_2D_OPTIONS, Scene2D } from '@/viewer/scene2d'
+import { HeatmapRenderer, formatHeatValue, type HeatmapFile } from '@/viewer/heatmap'
+import { PathRenderer, type PathsFile } from '@/viewer/paths'
 import { formatSimTime, useTimeline } from '@/state/timeline'
+import { RunAnalysis } from './RunAnalysis'
 
 type Layout = 'split' | '3d' | '2d'
+type Tab = 'playback' | 'analysis'
 
 export function RunViewer() {
   const { projectId, runId } = useParams<{ projectId: string; runId: string }>()
@@ -115,6 +119,15 @@ function ViewerStage({
   const [loadError, setLoadError] = useState<string | null>(null)
   const [inspected, setInspected] = useState<EntityAt | null>(null)
 
+  const [tab, setTab] = useState<Tab>('playback')
+  const [metric, setMetric] = useState<string>('')
+  const [heatBucket, setHeatBucket] = useState<number | null>(null)
+  const [showPaths, setShowPaths] = useState(false)
+  const [heatReadout, setHeatReadout] = useState<{ value: number; unit: string } | null>(null)
+
+  const heatmap = useRef(new HeatmapRenderer())
+  const paths = useRef(new PathRenderer())
+
   const timeline = useTimeline()
 
   // Entities resolved for the current frame, kept in a ref so the render loop
@@ -122,6 +135,53 @@ function ViewerStage({
   const frameEntities = useRef<EntityAt[]>([])
 
   const selectedPlan = useMemo(() => plans.find((p) => p.id === planId), [plans, planId])
+
+  // The aggregate overlays are fetched once and never change, because a
+  // finished run's artifacts are immutable.
+  const heatmapData = useQuery({
+    queryKey: ['heatmaps', projectId, runId],
+    queryFn: () => api.runs.aggregate<HeatmapFile>(projectId, runId, 'heatmaps.json'),
+    enabled: manifest.available.heatmaps,
+    staleTime: Infinity,
+  })
+
+  const pathsData = useQuery({
+    queryKey: ['paths', projectId, runId],
+    queryFn: () => api.runs.aggregate<PathsFile>(projectId, runId, 'paths.json'),
+    enabled: manifest.available.paths,
+    staleTime: Infinity,
+  })
+
+  useEffect(() => {
+    heatmap.current.setFile(heatmapData.data ?? null)
+    heatmap.current.selectLayer(metric || null)
+  }, [heatmapData.data, metric])
+
+  useEffect(() => {
+    heatmap.current.selectBucket(heatBucket)
+  }, [heatBucket])
+
+  useEffect(() => {
+    paths.current.setFile(pathsData.data ?? null)
+  }, [pathsData.data])
+
+  // Derived from the query rather than read off the renderer.
+  //
+  // The renderer is a ref, and mutating a ref does not re-render, so anything
+  // the markup needs has to come from state or from a pure derivation of it.
+  // Reading the ref during render left the legend and the description blank
+  // while the canvas drew correctly, which is a confusing way to be wrong.
+  const activeLayer = useMemo(
+    () => (metric ? (heatmapData.data?.layers.find((l) => l.metric === metric) ?? null) : null),
+    [heatmapData.data, metric],
+  )
+
+  const bucketCount = heatmapData.data?.buckets ?? 0
+  const bucketSeconds = heatmapData.data?.bucketSeconds ?? 0
+  const heatStart = heatmapData.data?.startTime ?? 0
+  const cellMeters = heatmapData.data?.cellMeters ?? 0
+
+  const pathStats = pathsData.data
 
   // ---- set up the playback engine and both scenes -------------------------
   useEffect(() => {
@@ -164,6 +224,7 @@ function ViewerStage({
     const scene = new Scene2D(canvas2d.current)
     scene.build(manifest)
     scene.setOptions({ ...DEFAULT_2D_OPTIONS })
+    scene.setOverlays(heatmap.current, paths.current)
     scene2d.current = scene
 
     return () => {
@@ -174,8 +235,17 @@ function ViewerStage({
   // ---- keep the options in sync ------------------------------------------
   useEffect(() => {
     scene3d.current?.setOptions({ colorByState })
-    scene2d.current?.setOptions({ colorByState, showPlan, showTrails })
-  }, [colorByState, showPlan, showTrails])
+    scene2d.current?.setOptions({
+      colorByState,
+      showPlan,
+      showTrails,
+      showHeatmap: metric !== '',
+      showPaths,
+      // Journeys grow with the clock while playing, so the diagram is built up
+      // rather than presented complete before anything has happened.
+      pathsFollowClock: true,
+    })
+  }, [colorByState, showPlan, showTrails, metric, showPaths])
 
   useEffect(() => {
     scene3d.current?.setHiddenClasses(timeline.hiddenClasses)
@@ -312,13 +382,28 @@ function ViewerStage({
 
         <strong style={{ fontSize: 13 }}>{scenarioName ?? manifest.modelName}</strong>
 
+        <div className="tabs">
+          <button
+            className={`tab ${tab === 'playback' ? 'active' : ''}`}
+            onClick={() => setTab('playback')}
+          >
+            Playback
+          </button>
+          <button
+            className={`tab ${tab === 'analysis' ? 'active' : ''}`}
+            onClick={() => setTab('analysis')}
+          >
+            Analysis
+          </button>
+        </div>
+
         <span className="faint" style={{ fontSize: 12 }}>
           {manifest.counts.entities.toLocaleString()} entities · seed {manifest.seed}
         </span>
 
         <div className="spacer" />
 
-        <div className="row" style={{ gap: 4 }}>
+        <div className="row" style={{ gap: 4, display: tab === 'playback' ? undefined : 'none' }}>
           {(['split', '3d', '2d'] as Layout[]).map((option) => (
             <button
               key={option}
@@ -331,6 +416,7 @@ function ViewerStage({
         </div>
 
         <button
+          style={{ display: tab === 'playback' ? undefined : 'none' }}
           className={`btn small toggle ${colorByState ? 'on' : ''}`}
           onClick={() => setColorByState((v) => !v)}
           title="Colour entities by what they are doing, rather than by type"
@@ -339,13 +425,14 @@ function ViewerStage({
         </button>
 
         <button
+          style={{ display: tab === 'playback' ? undefined : 'none' }}
           className={`btn small toggle ${showTrails ? 'on' : ''}`}
           onClick={() => setShowTrails((v) => !v)}
         >
           Trails
         </button>
 
-        {plans.length > 0 && (
+        {tab === 'playback' && plans.length > 0 && (
           <>
             <select
               value={planId}
@@ -371,7 +458,7 @@ function ViewerStage({
           </>
         )}
 
-        {(manifest.levels ?? []).length > 1 && (
+        {tab === 'playback' && (manifest.levels ?? []).length > 1 && (
           <select
             value={levelIndex}
             onChange={(e) => {
@@ -392,6 +479,92 @@ function ViewerStage({
       </div>
 
       {loadError && <div className="banner error" style={{ margin: 10 }}>{loadError}</div>}
+
+      {tab === 'analysis' ? (
+        <div className="viewer-body" style={{ display: 'block', overflow: 'auto' }}>
+          <RunAnalysis projectId={projectId} runId={runId} manifest={manifest} />
+        </div>
+      ) : (
+      <>
+      {/* The overlay bar only appears when a run actually has these layers, so
+          a run without them never offers a control that does nothing. */}
+      {(manifest.available.heatmaps || manifest.available.paths) && (
+        <div className="heatmap-bar">
+          {manifest.available.heatmaps && (
+            <>
+              <span className="faint" style={{ fontSize: 11 }}>Overlay</span>
+              <select
+                value={metric}
+                onChange={(e) => {
+                  setMetric(e.target.value)
+                  setHeatBucket(null)
+                }}
+                style={{ width: 'auto', fontSize: 12, padding: '5px 8px' }}
+              >
+                <option value="">None</option>
+                {(manifest.heatmaps ?? []).map((h) => (
+                  <option key={h.metric} value={h.metric}>{h.label}</option>
+                ))}
+              </select>
+            </>
+          )}
+
+          {activeLayer && (
+            <>
+              <span className="heatmap-desc">{activeLayer.description}</span>
+
+              {/* A continuous gradient legend, because the value it encodes is
+                  continuous; discrete swatches would imply buckets. */}
+              <div className="ramp-legend">
+                <span>0</span>
+                <span className="ramp-bar" />
+                <span>{formatHeatValue(activeLayer.scale, activeLayer.unit)}+</span>
+              </div>
+
+              {bucketCount > 1 && (
+                <div className="row" style={{ gap: 6 }}>
+                  <button
+                    className={`btn small toggle ${heatBucket === null ? 'on' : ''}`}
+                    onClick={() => setHeatBucket(null)}
+                  >
+                    Whole run
+                  </button>
+                  <input
+                    type="range"
+                    min={0}
+                    max={bucketCount - 1}
+                    value={heatBucket ?? 0}
+                    onChange={(e) => setHeatBucket(Number(e.target.value))}
+                    style={{ width: 130 }}
+                    title="Scrub the overlay through the run"
+                  />
+                  {heatBucket !== null && (
+                    <span className="faint" style={{ fontSize: 11 }}>
+                      {formatSimTime(heatStart + heatBucket * bucketSeconds)} –{' '}
+                      {formatSimTime(heatStart + (heatBucket + 1) * bucketSeconds)}
+                    </span>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {manifest.available.paths && (
+            <button
+              className={`btn small toggle ${showPaths ? 'on' : ''}`}
+              onClick={() => setShowPaths((v) => !v)}
+              title="Draw the routes entities actually took"
+            >
+              Journeys
+              {showPaths && pathStats && pathStats.total > 0 && (
+                <span className="faint" style={{ marginLeft: 5 }}>
+                  {Math.min(pathStats.sampled, 200)} of {pathStats.total.toLocaleString()}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
+      )}
 
       <div className={`viewer-body ${layout === 'split' ? 'split' : ''}`}>
         <div
@@ -423,15 +596,28 @@ function ViewerStage({
               scene2d.current?.pan(e.movementX, e.movementY)
               return
             }
+
             const rect = e.currentTarget.getBoundingClientRect()
-            const id = scene2d.current?.pick(
-              frameEntities.current,
-              e.clientX - rect.left,
-              e.clientY - rect.top,
-            )
+            const px = e.clientX - rect.left
+            const py = e.clientY - rect.top
+
+            const id = scene2d.current?.pick(frameEntities.current, px, py)
             useTimeline.getState().hover(id ?? null)
+
+            // A heat cell's value has to be reachable, not only its colour.
+            const layer = heatmap.current.current
+            if (layer && scene2d.current) {
+              const world = scene2d.current.toWorld(px, py)
+              const value = heatmap.current.valueAt(world.x, world.y)
+              setHeatReadout(value === null || value <= 0 ? null : { value, unit: layer.unit })
+            } else {
+              setHeatReadout(null)
+            }
           }}
-          onPointerLeave={() => useTimeline.getState().hover(null)}
+          onPointerLeave={() => {
+            useTimeline.getState().hover(null)
+            setHeatReadout(null)
+          }}
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect()
             const id = scene2d.current?.pick(
@@ -446,10 +632,24 @@ function ViewerStage({
           <canvas ref={canvas2d} />
           {layout === '2d' && <Legend manifest={manifest} />}
           {inspected && <Inspector entity={inspected} manifest={manifest} />}
+
+          {heatReadout && activeLayer && (
+            <div className="heat-readout">
+              <strong>{formatHeatValue(heatReadout.value, heatReadout.unit)}</strong>
+              {activeLayer.label} in this cell
+              {cellMeters > 0 && (
+                <div className="faint" style={{ fontSize: 10, marginTop: 2 }}>
+                  {cellMeters} m square
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
       <TimelineBar manifest={manifest} level={level?.stride ?? 1} />
+      </>
+      )}
     </div>
   )
 }

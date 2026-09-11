@@ -325,3 +325,28 @@ func TestTraceStaysCompact(t *testing.T) {
 	}
 	t.Logf("%d entities in %d bytes, %.0f bytes each", result.Created, info.Size(), perEntity)
 }
+
+// Utilisation must describe the measured period, not the whole run.
+//
+// The failure this pins is subtle and was shipped once: busy time accumulated
+// from the first second while the divisor excluded the warm-up, which inflated
+// every utilisation by exactly the warm-up's share of the run. The number then
+// disagreed with a chart of the same thing, and the chart was right.
+func TestUtilisationExcludesTheWarmUp(t *testing.T) {
+	if len(result.Resources) != 1 {
+		t.Fatalf("expected one resource, got %d", len(result.Resources))
+	}
+
+	desk := result.Resources[0]
+
+	// This model has no warm-up, so utilisation over the measured period and
+	// over the whole run are the same number, and it must equal the offered
+	// load: a 6 second service arriving every 10 seconds.
+	busySeconds := desk.Utilisation * float64(desk.Capacity) * result.EndTime
+	servedSeconds := float64(desk.Seized) * 6
+
+	if math.Abs(busySeconds-servedSeconds) > servedSeconds*0.02 {
+		t.Errorf("the desk was busy for %.0fs by its utilisation but served %d jobs of 6s, which is %.0fs",
+			busySeconds, desk.Seized, servedSeconds)
+	}
+}

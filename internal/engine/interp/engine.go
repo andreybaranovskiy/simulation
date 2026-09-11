@@ -195,6 +195,7 @@ func (e *engine) buildResources() {
 		}
 
 		res := newResource(r, uint16(i), x, y, z)
+		res.measureFrom = e.warmUp
 		e.resources[r.ID] = res
 		e.resourceList = append(e.resourceList, res)
 	}
@@ -213,7 +214,9 @@ func (e *engine) buildResources() {
 			Label:    fmt.Sprintf("Link %s to %s", l.From, l.To),
 			Capacity: l.Capacity,
 		}
-		e.linkLocks[l] = newResource(lockSpec, next, 0, 0, 0)
+		lock := newResource(lockSpec, next, 0, 0, 0)
+		lock.measureFrom = e.warmUp
+		e.linkLocks[l] = lock
 		next++
 	}
 }
