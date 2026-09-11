@@ -8,6 +8,7 @@ import { mergeProgress, useRunEvents } from '@/state/runEvents'
 import { formatDuration } from '@/state/timeline'
 import { formatDate } from './Projects'
 import { NewScenarioDialog } from './NewScenarioDialog'
+import { EditScenarioDialog } from './EditScenarioDialog'
 import { PlansPanel } from './PlansPanel'
 
 export function ProjectPage() {
@@ -16,6 +17,7 @@ export function ProjectPage() {
   const { events, connected } = useRunEvents(projectId)
 
   const [creating, setCreating] = useState(false)
+  const [editingScenario, setEditingScenario] = useState<Scenario | null>(null)
 
   const project = useQuery({
     queryKey: ['project', projectId],
@@ -103,6 +105,18 @@ export function ProjectPage() {
           />
         )}
 
+        {editingScenario && projectId && (
+          <EditScenarioDialog
+            projectId={projectId}
+            scenario={editingScenario}
+            onClose={() => setEditingScenario(null)}
+            onSaved={() => {
+              setEditingScenario(null)
+              void queryClient.invalidateQueries({ queryKey: ['scenarios', projectId] })
+            }}
+          />
+        )}
+
         <div className="card">
           <div className="card-head">
             <h2 style={{ flex: 1 }}>Scenarios</h2>
@@ -144,6 +158,7 @@ export function ProjectPage() {
                     canEdit={canEdit}
                     starting={startRun.isPending && startRun.variables === scenario.id}
                     onRun={() => startRun.mutate(scenario.id)}
+                    onEdit={() => setEditingScenario(scenario)}
                   />
                 ))}
               </tbody>
@@ -164,6 +179,7 @@ function ScenarioRow({
   scenario,
   live,
   canEdit,
+  onEdit,
   starting,
   onRun,
 }: {
@@ -171,6 +187,7 @@ function ScenarioRow({
   scenario: Scenario
   live: ReturnType<typeof useRunEvents>['events'] extends Map<string, infer E> ? E | undefined : never
   canEdit: boolean
+  onEdit: () => void
   starting: boolean
   onRun: () => void
 }) {
@@ -254,10 +271,15 @@ function ScenarioRow({
 
       <td className="num">
         {canEdit && (
-          <button className="btn small" onClick={onRun} disabled={starting || active}>
-            {starting && <span className="spinner" />}
-            Run
-          </button>
+          <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
+            <button className="btn small ghost" onClick={onEdit}>
+              Edit
+            </button>
+            <button className="btn small" onClick={onRun} disabled={starting || active}>
+              {starting && <span className="spinner" />}
+              Run
+            </button>
+          </div>
         )}
       </td>
     </tr>

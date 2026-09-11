@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 
 import { ApiError, api } from '@/api/client'
-import type { Template, TemplateParam } from '@/api/types'
+import type { TemplateParam } from '@/api/types'
 
 /**
  * Creating a scenario in one step: pick a template, tune its parameters, name
@@ -90,7 +90,7 @@ export function NewScenarioDialog({
     },
   })
 
-  const groups = useMemo(() => groupParams(template), [template])
+  const groups = useMemo(() => groupParams(template?.params ?? []), [template])
   const changedCount = template
     ? template.params.filter((p) => values[p.id] !== undefined && values[p.id] !== p.default).length
     : 0
@@ -215,7 +215,7 @@ export function NewScenarioDialog({
   )
 }
 
-function ParamControl({
+export function ParamControl({
   param,
   value,
   onChange,
@@ -280,11 +280,9 @@ function formatValue(value: number, param: TemplateParam): string {
   return param.unit ? `${text} ${param.unit}` : text
 }
 
-function groupParams(template: Template | undefined): Array<[string, TemplateParam[]]> {
-  if (!template) return []
-
+export function groupParams(params: TemplateParam[]): Array<[string, TemplateParam[]]> {
   const groups = new Map<string, TemplateParam[]>()
-  for (const param of template.params) {
+  for (const param of params) {
     const key = param.group || 'Settings'
     const list = groups.get(key)
     if (list) list.push(param)
