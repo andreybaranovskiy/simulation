@@ -18,6 +18,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,6 +32,7 @@ import (
 	"github.com/andreybaranovskiy/simulation/internal/engine/spec"
 	"github.com/andreybaranovskiy/simulation/internal/engine/templates"
 	"github.com/andreybaranovskiy/simulation/internal/engine/trace"
+	"github.com/andreybaranovskiy/simulation/internal/runstore"
 )
 
 var version = "dev"
@@ -82,6 +85,8 @@ func run() error {
 		listFlag    = flag.Bool("list", false, "list the available templates and exit")
 		describe    = flag.String("describe", "", "print a template's parameters and exit")
 		dumpModel   = flag.Bool("dump-model", false, "write the resolved model to stdout and exit without running")
+		skipBuild   = flag.Bool("no-build", false, "write the trace but skip building the viewer artifacts")
+		keepTrace   = flag.Bool("keep-trace", true, "keep the raw event trace after building the artifacts")
 		quiet       = flag.Bool("quiet", false, "suppress progress output")
 		showVersion = flag.Bool("version", false, "print the version and exit")
 	)
@@ -177,6 +182,37 @@ func run() error {
 
 	if !*quiet {
 		printSummary(os.Stderr, model, result)
+	}
+
+	if *skipBuild {
+		return nil
+	}
+
+	// Building here rather than in the server keeps the whole cost of a run
+	// inside the process that is already bounded by a timeout and a memory
+	// cap, and it means a finished run directory is immediately viewable.
+	if !*quiet {
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "building viewer artifacts...")
+	}
+
+	manifest, err := runstore.Build(runstore.Dir(*outDir), runstore.BuildOptions{
+		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Progress: buildProgress(*quiet),
+	})
+	if err != nil {
+		return fmt.Errorf("build the viewer artifacts: %w", err)
+	}
+
+	if !*keepTrace {
+		// The trace is an intermediate. Once the chunks and aggregates exist
+		// nothing reads it again, and on a large run it is the biggest file in
+		// the directory.
+		_ = os.Remove(filepath.Join(*outDir, runstore.TraceFile))
+	}
+
+	if !*quiet {
+		printArtifacts(os.Stderr, manifest)
 	}
 	return nil
 }

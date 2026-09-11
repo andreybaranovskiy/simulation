@@ -188,6 +188,16 @@ func (e *engine) seize(r *resource, ent *entity) seizeOutcome {
 	// Released to us: the releasing entity already counted the occupancy, so
 	// only the wait is recorded here.
 	granted := godes.GetSystemTime()
+
+	// A zero-length segment marks the end of the wait.
+	//
+	// Without it the wait and the service that follows it are one span, since
+	// nothing else moves the entity between queueing and being served. The
+	// post-processing pass credits a span to one state, so a merged span files
+	// the whole wait under "serving" and the congestion heatmap comes out
+	// empty however long the queue was.
+	e.trace.Segment(granted, ent.id, ent.x, ent.y, ent.z)
+
 	e.trace.Event(granted, ent.id, trace.EvQueueExit, r.index)
 	e.trace.Event(granted, ent.id, trace.EvSeize, r.index)
 	r.seized++
