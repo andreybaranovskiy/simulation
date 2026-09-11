@@ -200,7 +200,17 @@ function ScenarioRow({
         )}
       </td>
 
-      <td className="dim">{scenario.modelName}</td>
+      <td>
+        <Link
+          to={`/projects/${projectId}/models/${scenario.modelId}/layout${
+            scenario.sitePlanId ? `?plan=${scenario.sitePlanId}` : ''
+          }`}
+          className="dim"
+          title="Arrange this model's layout on a plan"
+        >
+          {scenario.modelName}
+        </Link>
+      </td>
       <td className="num dim">{scenario.runCount ?? 0}</td>
 
       <td style={{ minWidth: 190 }}>

@@ -1089,3 +1089,152 @@ tbody tr:hover {
   font-size: 15px;
   line-height: 1;
 }
+
+/* ---------------------------------------------------------------- plan editor */
+
+.editor {
+  height: calc(100vh - 52px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.editor-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.editor-tools {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 12px;
+}
+
+.editor-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.editor-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  background: var(--sunken);
+  overflow: hidden;
+  touch-action: none;
+}
+
+.editor-canvas svg {
+  display: block;
+}
+
+.editor-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 5px 10px;
+  pointer-events: none;
+}
+
+.editor-inspector {
+  width: 260px;
+  flex: none;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+  padding: 16px 16px 22px;
+  overflow-y: auto;
+}
+
+.editor-inspector h3 {
+  margin: 0 0 12px;
+}
+
+.editor-inspector .field {
+  margin-bottom: 12px;
+}
+
+.field-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  margin-bottom: 4px;
+}
+
+/* SVG elements. Nodes and zones keep their content colours; selection and the
+   link-source state add a ring. */
+.edit-node {
+  fill: #4c6bbf;
+  stroke: var(--panel);
+  stroke-width: 1.5;
+  cursor: pointer;
+}
+
+.edit-node.resource {
+  fill: #f2c14e;
+}
+
+.edit-node.sel {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.edit-node.link-from {
+  stroke: var(--good);
+  stroke-width: 3;
+}
+
+.edit-resource-ring {
+  fill: none;
+  stroke: rgba(242, 193, 78, 0.5);
+  stroke-width: 1.5;
+}
+
+.edit-node-label,
+.edit-zone-label {
+  fill: var(--text-dim);
+  font-size: 11px;
+  font-family: var(--font);
+  pointer-events: none;
+}
+
+.edit-zone {
+  fill-opacity: 0.14;
+  stroke: #3fc98a;
+  stroke-opacity: 0.7;
+  stroke-width: 1.5;
+  cursor: move;
+}
+
+.edit-zone.sel {
+  stroke-opacity: 1;
+  stroke-width: 2;
+}
+
+.edit-handle {
+  fill: var(--accent);
+  stroke: var(--panel);
+  stroke-width: 1.5;
+  cursor: nesw-resize;
+}
+
+.edit-link {
+  stroke: rgba(120, 160, 255, 0.6);
+  stroke-width: 2;
+  cursor: pointer;
+}
+
+:root[data-theme='light'] .edit-link {
+  stroke: rgba(60, 100, 200, 0.55);
+}

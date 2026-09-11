@@ -8,6 +8,7 @@ import { PlanCalibrate } from '@/pages/PlanCalibrate'
 import { RunViewer } from '@/pages/RunViewer'
 import { Compare } from '@/pages/Compare'
 import { Reports } from '@/pages/Reports'
+import { PlanEditor } from '@/pages/PlanEditor'
 import { ReportPrint } from '@/print/ReportPrint'
 import { useTheme } from '@/state/theme'
 
@@ -62,6 +63,7 @@ function Shell() {
         <Route path="/projects/:projectId/plans/:planId" element={<PlanCalibrate />} />
         <Route path="/projects/:projectId/compare" element={<Compare />} />
         <Route path="/projects/:projectId/reports" element={<Reports />} />
+        <Route path="/projects/:projectId/models/:modelId/layout" element={<PlanEditor />} />
         {/* The viewer is full-bleed and manages its own scrolling. */}
         <Route path="/projects/:projectId/runs/:runId" element={<RunViewer />} />
         <Route path="*" element={<NotFound />} />

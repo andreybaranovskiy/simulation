@@ -6,6 +6,18 @@ import type { PathRenderer } from './paths'
 import { resolveForm, type Form } from './forms'
 
 /**
+ * The plan view's palette, one per theme. Node, resource and zone colours are
+ * content and carry across both surfaces; the ground, the labels, the trails
+ * and the scale bar follow the theme.
+ */
+const SCENE2D_THEME = {
+  dark: { bg: '#0b1020', label: '#cfe0ff', nodeLabel: '#8fa3d8', link: 'rgba(120, 160, 255, 0.28)', scale: 'rgba(207, 224, 255, 0.85)' },
+  light: { bg: '#eef1f8', label: '#33436a', nodeLabel: '#4a5878', link: 'rgba(60, 100, 200, 0.30)', scale: 'rgba(40, 60, 110, 0.85)' },
+} as const
+
+type Scene2DTheme = keyof typeof SCENE2D_THEME
+
+/**
  * The top-down plan view.
  *
  * Canvas rather than WebGL, deliberately. What this view has to do well is draw
@@ -89,6 +101,8 @@ export class Scene2D {
    *  by four orders of magnitude. */
   private framed = false
 
+  private palette: (typeof SCENE2D_THEME)[Scene2DTheme] = SCENE2D_THEME.dark
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
 
@@ -105,6 +119,11 @@ export class Scene2D {
 
   setHiddenClasses(hidden: Set<number>) {
     this.hiddenClasses = hidden
+  }
+
+  /** Recolours the ground, labels, trails and scale bar for the theme. */
+  setTheme(name: Scene2DTheme) {
+    this.palette = SCENE2D_THEME[name]
   }
 
   setOverlays(heatmap: HeatmapRenderer | null, paths: PathRenderer | null) {
@@ -254,7 +273,7 @@ export class Scene2D {
     const height = this.canvas.clientHeight || 1
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
-    ctx.fillStyle = '#0b1020'
+    ctx.fillStyle = this.palette.bg
     ctx.fillRect(0, 0, width, height)
 
     if (!this.manifest) return
@@ -348,7 +367,7 @@ export class Scene2D {
 
       if (this.options.showLabels && w > 60) {
         ctx.globalAlpha = 0.85
-        ctx.fillStyle = '#cfe0ff'
+        ctx.fillStyle = this.palette.label
         ctx.font = '11px system-ui, sans-serif'
         ctx.fillText(zone.label, topLeft.x + 6, topLeft.y + 16)
       }
@@ -392,7 +411,7 @@ export class Scene2D {
       // Labels appear only when zoomed in enough to read them without
       // colliding, which is what keeps a site with sixty nodes legible.
       if (this.options.showLabels && this.camera.scale < 1.2) {
-        ctx.fillStyle = isResource ? '#f2c14e' : '#8fa3d8'
+        ctx.fillStyle = isResource ? '#f2c14e' : this.palette.nodeLabel
         ctx.fillText(label ?? node.label, p.x + 10, p.y + 4)
       }
     }
@@ -435,7 +454,7 @@ export class Scene2D {
 
   private drawTrails(ctx: CanvasRenderingContext2D) {
     ctx.save()
-    ctx.strokeStyle = 'rgba(120, 160, 255, 0.28)'
+    ctx.strokeStyle = this.palette.link
     ctx.lineWidth = 1.5
     ctx.lineCap = 'round'
 
@@ -509,7 +528,7 @@ export class Scene2D {
         if (this.overlayActive) {
           ctx.beginPath()
           ctx.arc(p.x, p.y, radius + 1.5, 0, Math.PI * 2)
-          ctx.fillStyle = '#0b1020'
+          ctx.fillStyle = this.palette.bg
           ctx.fill()
           ctx.fillStyle = emphasised
             ? '#ffffff'
@@ -552,8 +571,8 @@ export class Scene2D {
     const y = height - 22
 
     ctx.save()
-    ctx.strokeStyle = 'rgba(207, 224, 255, 0.85)'
-    ctx.fillStyle = 'rgba(207, 224, 255, 0.85)'
+    ctx.strokeStyle = this.palette.scale
+    ctx.fillStyle = this.palette.scale
     ctx.lineWidth = 1.5
 
     ctx.beginPath()

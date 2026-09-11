@@ -125,6 +125,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/projects/{projectID}/models/{modelID}", project(model.RoleViewer, s.handleGetModel))
 	mux.HandleFunc("PATCH /api/projects/{projectID}/models/{modelID}", project(model.RoleEditor, s.handleUpdateModel))
 	mux.HandleFunc("DELETE /api/projects/{projectID}/models/{modelID}", project(model.RoleEditor, s.handleDeleteModel))
+	// Materialise a model into an editable spec whose layout can be dragged on a plan.
+	mux.HandleFunc("POST /api/projects/{projectID}/models/{modelID}/editable", project(model.RoleEditor, s.handleMakeModelEditable))
 
 	mux.HandleFunc("GET /api/projects/{projectID}/scenarios", project(model.RoleViewer, s.handleListScenarios))
 	mux.HandleFunc("POST /api/projects/{projectID}/scenarios", project(model.RoleEditor, s.handleCreateScenario))

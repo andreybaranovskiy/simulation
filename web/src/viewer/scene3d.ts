@@ -10,6 +10,17 @@ import { EntityState, stateColors } from '@/api/types'
 import type { EntityAt } from './playback'
 
 /**
+ * The viewer's own palette, one per theme. The entity, node and zone colours
+ * are content and carry across both; only the ground the scene sits on changes.
+ */
+const VIEWER_THEME = {
+  dark: { bg: 0x0b1020, gridMajor: 0x2a3566, gridMinor: 0x1b2344, hemiSky: 0xb8c6ff, hemiGround: 0x18203a },
+  light: { bg: 0xeef1f8, gridMajor: 0xc3cde6, gridMinor: 0xdae1f2, hemiSky: 0xffffff, hemiGround: 0xccd6f0 },
+} as const
+
+type ThemeName = keyof typeof VIEWER_THEME
+
+/**
  * The 3D scene.
  *
  * Carried over from the original viewer: the orbit controls, the dark palette,
@@ -63,6 +74,12 @@ export class Scene3D {
   private planMesh: THREE.Mesh | null = null
   private annotations = new THREE.Group()
   private grid: THREE.GridHelper | null = null
+  private themeName: ThemeName = 'dark'
+  private hemi: THREE.HemisphereLight | null = null
+  // Kept so a theme change can rebuild the grid without a full scene rebuild.
+  private gridCenter: [number, number, number] = [0, 0, 0]
+  private gridSize = 0
+  private gridDivisions = 0
 
   private options: SceneOptions = { ...DEFAULT_OPTIONS }
   private hiddenClasses = new Set<number>()
@@ -116,7 +133,8 @@ export class Scene3D {
     this.controls.maxPolarAngle = Math.PI * 0.495
     this.controls.screenSpacePanning = false
 
-    this.scene.add(new THREE.HemisphereLight(0xb8c6ff, 0x18203a, 1.1))
+    this.hemi = new THREE.HemisphereLight(0xb8c6ff, 0x18203a, 1.1)
+    this.scene.add(this.hemi)
 
     const sun = new THREE.DirectionalLight(0xffffff, 1.4)
     sun.position.set(200, 400, 150)
@@ -173,14 +191,47 @@ export class Scene3D {
     const spacing = extent > 2000 ? 100 : extent > 500 ? 50 : 10
     const divisions = Math.max(4, Math.round((extent * 1.4) / spacing))
 
-    this.grid = new THREE.GridHelper(extent * 1.4, divisions, 0x2a3566, 0x1b2344)
-    this.grid.position.set(
-      (bounds.minX + bounds.maxX) / 2,
-      -0.02,
-      -(bounds.minY + bounds.maxY) / 2,
-    )
+    this.gridCenter = [(bounds.minX + bounds.maxX) / 2, -0.02, -(bounds.minY + bounds.maxY) / 2]
+    this.gridSize = extent * 1.4
+    this.gridDivisions = divisions
+    this.rebuildGrid()
+  }
+
+  private rebuildGrid() {
+    if (this.grid) {
+      this.scene.remove(this.grid)
+      this.grid.dispose()
+      this.grid = null
+    }
+    if (this.gridSize <= 0) return
+
+    const theme = VIEWER_THEME[this.themeName]
+    this.grid = new THREE.GridHelper(this.gridSize, this.gridDivisions, theme.gridMajor, theme.gridMinor)
+    this.grid.position.set(this.gridCenter[0], this.gridCenter[1], this.gridCenter[2])
     this.grid.visible = this.options.showGrid
     this.scene.add(this.grid)
+  }
+
+  /**
+   * Recolours the ground for the chosen theme. The entities, nodes and zones
+   * keep their own colours: those are content, legible on either surface. Only
+   * the background, the fog and the grid, which are the ground the scene sits
+   * on, follow the theme.
+   */
+  setTheme(name: ThemeName) {
+    if (name === this.themeName && this.grid) return
+    this.themeName = name
+
+    const theme = VIEWER_THEME[name]
+    this.renderer.setClearColor(theme.bg)
+    if (this.scene.background instanceof THREE.Color) this.scene.background.setHex(theme.bg)
+    else this.scene.background = new THREE.Color(theme.bg)
+    if (this.scene.fog instanceof THREE.Fog) this.scene.fog.color.setHex(theme.bg)
+    if (this.hemi) {
+      this.hemi.color.setHex(theme.hemiSky)
+      this.hemi.groundColor.setHex(theme.hemiGround)
+    }
+    this.rebuildGrid()
   }
 
   private buildZones(manifest: Manifest) {

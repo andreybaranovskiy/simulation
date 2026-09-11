@@ -173,6 +173,14 @@ export const api = {
         spec: null,
         assetId: '',
       }),
+    update: (projectId: string, modelId: string, body: { name?: string; description?: string; spec?: unknown }) =>
+      patch<SimModel>(`/api/projects/${projectId}/models/${modelId}`, body),
+
+    /** Materialises a model into an editable spec whose layout can be dragged
+     *  on a plan, returning the new model. */
+    makeEditable: (projectId: string, modelId: string) =>
+      post<SimModel>(`/api/projects/${projectId}/models/${modelId}/editable`, {}),
+
     remove: (projectId: string, modelId: string) => del<void>(`/api/projects/${projectId}/models/${modelId}`),
   },
 

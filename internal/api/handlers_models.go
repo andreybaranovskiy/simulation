@@ -350,3 +350,81 @@ func problemFields(problems []spec.Problem) map[string]string {
 	}
 	return out
 }
+
+// handleMakeModelEditable creates an editable spec model from another model, so
+// its layout can be arranged on a plan.
+//
+// A template model has no stored geometry to drag — it is a generator plus
+// parameters — so this resolves it to a concrete spec once, with the template's
+// default parameters, and saves that as a new spec model. A spec model is
+// copied as-is. The original is left untouched: arranging a layout is a new
+// model, not an edit to the one scenarios already reference.
+func (s *Server) handleMakeModelEditable(w http.ResponseWriter, r *http.Request) error {
+	m, err := s.modelInProject(r)
+	if err != nil {
+		return err
+	}
+	ctx := r.Context()
+
+	var resolved *spec.Model
+	switch m.Source {
+	case model.SourceSpec:
+		if len(m.Spec) == 0 {
+			return badRequest("That model has no definition to arrange.")
+		}
+		resolved, err = spec.Parse(m.Spec)
+		if err != nil {
+			return specError(err)
+		}
+
+	case model.SourceTemplate:
+		tpl, ok := templates.Get(m.TemplateKey)
+		if !ok {
+			return badRequest("This build does not have the template %q.", m.TemplateKey)
+		}
+		resolved, err = tpl.Build(nil)
+		if err != nil {
+			return internal(err)
+		}
+
+	default:
+		return badRequest("Only a template or a spec model can be arranged on a plan.")
+	}
+
+	encoded, err := resolved.Marshal()
+	if err != nil {
+		return internal(err)
+	}
+
+	editable := &model.SimModel{
+		ProjectID:   m.ProjectID,
+		Name:        editableName(m.Name),
+		Description: "Editable layout.",
+		Source:      model.SourceSpec,
+		Domain:      string(resolved.Domain),
+		Spec:        encoded,
+		CreatedBy:   auth.UserID(ctx),
+	}
+	if err := s.store.Models.Create(ctx, editable); err != nil {
+		return err
+	}
+
+	s.audit(ctx, store.Entry{
+		UserID: editable.CreatedBy, ProjectID: m.ProjectID, Action: "model.create",
+		TargetKind: "model", TargetID: editable.ID,
+		Detail: map[string]string{"name": editable.Name, "from": m.ID, "source": "layout"},
+		IP:     s.clientIP(r),
+	})
+
+	writeJSON(w, http.StatusCreated, editable)
+	return nil
+}
+
+// editableName appends a layout suffix without stacking it on repeated copies.
+func editableName(name string) string {
+	const suffix = " (layout)"
+	if len(name) > len(suffix) && name[len(name)-len(suffix):] == suffix {
+		return name
+	}
+	return name + suffix
+}

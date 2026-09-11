@@ -8,6 +8,7 @@ import { EntityState, stateColors, stateNames } from '@/api/types'
 import { Playback, type EntityAt } from '@/viewer/playback'
 import { Scene3D } from '@/viewer/scene3d'
 import { DEFAULT_2D_OPTIONS, Scene2D } from '@/viewer/scene2d'
+import { resolvedTheme, useTheme } from '@/state/theme'
 import { HeatmapRenderer, formatHeatValue, type HeatmapFile } from '@/viewer/heatmap'
 import { PathRenderer, type PathsFile } from '@/viewer/paths'
 import { formatSimTime, useTimeline } from '@/state/timeline'
@@ -108,6 +109,10 @@ function ViewerStage({
 
   const scene3d = useRef<Scene3D | null>(null)
   const scene2d = useRef<Scene2D | null>(null)
+
+  // The viewer follows the app theme like everything else; the entity, node
+  // and zone colours are legible on both grounds, so only the surface changes.
+  const [theme] = useTheme()
   const playback = useRef<Playback | null>(null)
 
   const [layout, setLayout] = useState<Layout>('split')
@@ -209,6 +214,7 @@ function ViewerStage({
     if (!pane3d.current) return
 
     const scene = new Scene3D(pane3d.current)
+    scene.setTheme(resolvedTheme())
     scene.build(manifest)
     scene3d.current = scene
 
@@ -222,6 +228,7 @@ function ViewerStage({
     if (!canvas2d.current) return
 
     const scene = new Scene2D(canvas2d.current)
+    scene.setTheme(resolvedTheme())
     scene.build(manifest)
     scene.setOptions({ ...DEFAULT_2D_OPTIONS })
     scene.setOverlays(heatmap.current, paths.current)
@@ -231,6 +238,11 @@ function ViewerStage({
       scene2d.current = null
     }
   }, [manifest])
+
+  useEffect(() => {
+    scene3d.current?.setTheme(theme)
+    scene2d.current?.setTheme(theme)
+  }, [theme])
 
   // ---- keep the options in sync ------------------------------------------
   useEffect(() => {
