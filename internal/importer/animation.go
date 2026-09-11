@@ -66,6 +66,19 @@ type AnimationTransition struct {
 	Z     float64         `json:"z"`
 }
 
+// The legacy format is written in the three.js convention, where Y is up and Z
+// runs across the ground. This platform puts north on Y and height on Z,
+// because a site plan is a map and a map's second axis is a direction, not an
+// elevation.
+//
+// Mapping between them is the difference between a terminal 10 km long and 400
+// m wide, and one that is 10 km long, 400 m TALL and infinitely thin. Without
+// this the lane offsets in a file become altitudes and every entity ends up on
+// a single line.
+func toWorld(x, y, z float64) (wx, wy, wz float64) {
+	return x, z, y
+}
+
 // Result reports what an import produced.
 type Result struct {
 	Name        string   `json:"name"`
@@ -188,7 +201,8 @@ func writeTrace(anim *Animation, dir runstore.Dir, runID string) (*Result, error
 	// describes a fixed cast moving around, not arrivals and departures.
 	for i, o := range anim.Objects {
 		id := uint32(i + 1)
-		w.Spawn(0, id, classOf[ids[i]], o.X, o.Y, o.Z)
+		x, y, z := toWorld(o.X, o.Y, o.Z)
+		w.Spawn(0, id, classOf[ids[i]], x, y, z)
 		w.State(0, id, trace.StateIdle)
 	}
 
@@ -229,6 +243,8 @@ type move struct {
 // collectMoves turns transitions into motion, carrying forward each object's
 // last known position for any axis a transition leaves out.
 func collectMoves(anim *Animation, indexOf map[string]uint32, result *Result) []move {
+	// Last-known positions are kept in the SOURCE axes, because a transition
+	// that omits an axis is omitting one of the source's, not one of ours.
 	last := make(map[uint32][3]float64, len(anim.Objects))
 	for i, o := range anim.Objects {
 		last[uint32(i+1)] = [3]float64{o.X, o.Y, o.Z}
@@ -258,14 +274,18 @@ func collectMoves(anim *Animation, indexOf map[string]uint32, result *Result) []
 		}
 
 		previous := last[entity]
-		m := move{
-			time:   t.Time,
-			entity: entity,
-			x:      pick(t.X, previous[0]),
-			y:      pick(t.Y, previous[1]),
-			z:      pick(t.Z, previous[2]),
+		x, y, z := toWorld(
+			pick(t.X, previous[0]),
+			pick(t.Y, previous[1]),
+			pick(t.Z, previous[2]),
+		)
+
+		m := move{time: t.Time, entity: entity, x: x, y: y, z: z}
+		last[entity] = [3]float64{
+			pick(t.X, previous[0]),
+			pick(t.Y, previous[1]),
+			pick(t.Z, previous[2]),
 		}
-		last[entity] = [3]float64{m.x, m.y, m.z}
 
 		moves = append(moves, m)
 		result.Moves++
@@ -386,7 +406,7 @@ func computeBounds(objects []AnimationObject, moves []move) trace.Bounds {
 	}
 
 	for _, o := range objects {
-		grow(o.X, o.Y, o.Z)
+		grow(toWorld(o.X, o.Y, o.Z))
 	}
 	for _, m := range moves {
 		grow(m.x, m.y, m.z)

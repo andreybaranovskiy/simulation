@@ -105,6 +105,43 @@ func TestImportProducesPlayableArtifacts(t *testing.T) {
 	}
 }
 
+// The legacy format puts height on Y and the ground's second axis on Z. Getting
+// this backwards turns lane offsets into altitudes and collapses a whole site
+// onto one line, which is exactly what happened before this was asserted.
+func TestImportMapsAxesToTheGround(t *testing.T) {
+	const sideBySide = `{
+      "animation": {"name": "Axes"},
+      "objects": [
+        {"id": 1, "type": "truck", "x": 0, "y": 0, "z": 0},
+        {"id": 2, "type": "truck", "x": 0, "y": 0, "z": 500}
+      ],
+      "transition": [
+        {"time": 10, "objId": 1, "type": "move", "x": 100, "y": 0, "z": 0},
+        {"time": 10, "objId": 2, "type": "move", "x": 100, "y": 0, "z": 500}
+      ]
+    }`
+
+	dir, _ := importSample(t, sideBySide)
+
+	m, err := dir.ReadManifest()
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+
+	// The two objects are 500 apart across the ground, so the site must be at
+	// least that wide. If the axes were swapped this would be nearly zero and
+	// the extent would show up as height instead.
+	width := m.Bounds.MaxY - m.Bounds.MinY
+	if width < 500 {
+		t.Errorf("the site is %.0f m across, but the objects are 500 m apart: the ground axes are wrong", width)
+	}
+
+	height := m.Bounds.MaxZ - m.Bounds.MinZ
+	if height > 100 {
+		t.Errorf("the site is %.0f m tall, but nothing in the file has any elevation", height)
+	}
+}
+
 func TestImportedPositionsAreRight(t *testing.T) {
 	dir, _ := importSample(t, sample)
 
@@ -124,6 +161,10 @@ func TestImportedPositionsAreRight(t *testing.T) {
 			found = true
 			if s.X != 100 {
 				t.Errorf("object 1 ends its first span at x=%g, want 100", s.X)
+			}
+			// The source's z becomes the world's y.
+			if s.Y != 0 {
+				t.Errorf("object 1 ends its first span at y=%g, want 0", s.Y)
 			}
 		}
 	}

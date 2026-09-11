@@ -11,14 +11,14 @@ Windows Server with MySQL 8.
 
 ## Status
 
-The project is being built in phases. Phases 1 and 2 are complete.
+The project is being built in phases. Phases 1 to 3 are complete.
 
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Accounts, projects, roles, asset storage, plan georeferencing | Done |
 | 2 | godes engine, model spec, run pipeline, artifact format | Done |
-| 3 | React frontend, 3D viewer, synchronized 2D plan view | Next |
-| 4 | Heatmaps, resource Gantt, spaghetti paths, KPI dashboard | |
+| 3 | React frontend, 3D viewer, synchronized 2D plan view | Done |
+| 4 | Heatmaps, resource Gantt, spaghetti paths, KPI dashboard | Next |
 | 5 | Scenario comparison | |
 | 6 | PDF report export | |
 | 7 | IIS deployment kit, admin-gated Go model upload | |
@@ -28,6 +28,18 @@ The project is being built in phases. Phases 1 and 2 are complete.
 - Go 1.24 or newer
 - MySQL 8.0 or newer
 - Node.js 20 or newer (for the frontend, from phase 3)
+
+## Building the web interface
+
+```bash
+cd web
+npm install
+npm run build
+```
+
+The Go server serves the result from `web/dist`. For frontend work,
+`npm run dev` runs Vite on port 5173 and proxies the API to the Go server, so
+the session cookie stays same-origin exactly as it is in production.
 
 ## Running locally
 

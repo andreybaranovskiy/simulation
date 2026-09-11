@@ -429,6 +429,15 @@ func (b *builder) buildManifest(s *RunSummary, heatmaps []HeatmapInfo) *Manifest
 			Records:  b.records,
 			Spans:    b.spans,
 		},
+
+		// These are initialised rather than left nil so the manifest always
+		// carries arrays. A nil slice marshals to null, and a client that
+		// reasonably maps over a list would then crash on any run that happens
+		// to have no nodes, such as an imported animation.
+		Classes:   []ClassInfo{},
+		Nodes:     []NodeInfo{},
+		Resources: []ResourceInfo{},
+		Levels:    []Level{},
 	}
 
 	for i, c := range b.header.Classes {

@@ -62,7 +62,8 @@ SELECT ` + prefixed("s", scenarioColumns) + `,
        (SELECT COUNT(*) FROM runs r WHERE r.scenario_id = s.id),
        latest.id, latest.status, latest.progress, latest.replication, latest.seed,
        latest.queued_at, latest.started_at, latest.finished_at,
-       latest.duration_ms, latest.error
+       latest.duration_ms, latest.error,
+       latest.entity_count, latest.sim_time
 FROM scenarios s
 JOIN models m ON m.id = s.model_id
 LEFT JOIN runs latest ON latest.id = (
@@ -97,7 +98,8 @@ WHERE s.project_id = ?`
 		var runReplication sql.NullInt64
 		var runSeed sql.NullInt64
 		var runQueued, runStarted, runFinished sql.NullTime
-		var runDuration sql.NullInt64
+		var runDuration, runEntities sql.NullInt64
+		var runSimTime sql.NullFloat64
 
 		err := rows.Scan(
 			&sc.ID, &sc.ProjectID, &sc.ModelID, &sc.Name, &sc.Description, &params,
@@ -105,7 +107,8 @@ WHERE s.project_id = ?`
 			&sc.CreatedBy, &sc.CreatedAt, &sc.UpdatedAt,
 			&sc.ModelName, &sc.RunCount,
 			&runID, &runStatus, &runProgress, &runReplication, &runSeed,
-			&runQueued, &runStarted, &runFinished, &runDuration, &runError)
+			&runQueued, &runStarted, &runFinished, &runDuration, &runError,
+			&runEntities, &runSimTime)
 		if err != nil {
 			return nil, fmt.Errorf("scan scenario: %w", mapErr(err))
 		}
@@ -125,6 +128,8 @@ WHERE s.project_id = ?`
 				StartedAt:    timePtr(runStarted),
 				FinishedAt:   timePtr(runFinished),
 				DurationMS:   runDuration.Int64,
+				EntityCount:  uint64(runEntities.Int64),
+				SimTime:      runSimTime.Float64,
 				Error:        runError.String,
 				ScenarioName: sc.Name,
 			}
