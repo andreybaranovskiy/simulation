@@ -1359,3 +1359,40 @@ tbody tr:hover {
   width: auto;
   accent-color: var(--accent);
 }
+
+/* Empirical distribution table in the plan editor. */
+.empirical-editor {
+  margin: 6px 0;
+}
+
+.empirical-head,
+.empirical-row {
+  display: grid;
+  grid-template-columns: 1fr 0.8fr 42px 26px;
+  gap: 6px;
+  align-items: center;
+}
+
+.empirical-head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  margin-bottom: 4px;
+}
+
+.empirical-row {
+  margin-bottom: 5px;
+}
+
+.empirical-row input {
+  padding: 5px 7px;
+  font-size: 12px;
+}
+
+.empirical-share {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}

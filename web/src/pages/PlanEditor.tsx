@@ -1223,6 +1223,15 @@ function DistEditor({ dist, onChange }: { dist: Dist; onChange: (dist: Dist) => 
       case 'triangular':
         onChange({ distribution: 'triangular', min: centre * 0.6, mode: centre, max: centre * 1.6 })
         break
+      case 'empirical':
+        // Seed with the current centre and a spread around it, each equally
+        // likely, so the table opens on a valid, editable starting point.
+        onChange({
+          distribution: 'empirical',
+          values: [Math.round(centre * 0.7), Math.round(centre), Math.round(centre * 1.4)],
+          weights: [1, 1, 1],
+        })
+        break
       default:
         onChange({ distribution: next })
     }
@@ -1237,7 +1246,10 @@ function DistEditor({ dist, onChange }: { dist: Dist; onChange: (dist: Dist) => 
         <option value="triangular">Triangular</option>
         <option value="uniform">Uniform</option>
         <option value="lognormal">Log-normal</option>
+        <option value="empirical">From data (empirical)</option>
       </select>
+
+      {kind === 'empirical' && <EmpiricalEditor dist={dist} onChange={onChange} />}
 
       <div className="row" style={{ gap: 6, marginTop: 6 }}>
         {kind === 'constant' && (
@@ -1276,6 +1288,60 @@ function DistEditor({ dist, onChange }: { dist: Dist; onChange: (dist: Dist) => 
           </Field>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Edits an empirical distribution: a table of values, each with a weight, drawn
+ * in proportion. It is how measured data from a real site gets into a model
+ * without fitting a curve to it — the observed service times, each as often as
+ * it was seen. A row's share of the whole is shown so the weights read as the
+ * probabilities they are.
+ */
+function EmpiricalEditor({ dist, onChange }: { dist: Dist; onChange: (dist: Dist) => void }) {
+  const values = dist.values ?? []
+  const weights = dist.weights ?? []
+  const weightOf = (i: number) => weights[i] ?? 1
+  const total = values.reduce((sum, _, i) => sum + weightOf(i), 0)
+
+  const commit = (nextValues: number[], nextWeights: number[]) =>
+    onChange({ distribution: 'empirical', values: nextValues, weights: nextWeights })
+
+  const setValue = (i: number, v: number) =>
+    commit(values.map((x, j) => (j === i ? v : x)), values.map((_, j) => weightOf(j)))
+  const setWeight = (i: number, w: number) =>
+    commit(values.slice(), values.map((_, j) => (j === i ? Math.max(0, w) : weightOf(j))))
+  const addRow = () => commit([...values, values[values.length - 1] ?? 0], [...values.map((_, j) => weightOf(j)), 1])
+  const removeRow = (i: number) =>
+    commit(values.filter((_, j) => j !== i), values.filter((_, j) => j !== i).map((_, j) => weightOf(j >= i ? j + 1 : j)))
+
+  return (
+    <div className="empirical-editor">
+      <div className="empirical-head">
+        <span>Value (s)</span>
+        <span>Weight</span>
+        <span>Share</span>
+        <span />
+      </div>
+      {values.map((value, i) => (
+        <div key={i} className="empirical-row">
+          <input type="number" value={value} onChange={(e) => setValue(i, Number(e.target.value))} />
+          <input type="number" min={0} step={0.5} value={weightOf(i)} onChange={(e) => setWeight(i, Number(e.target.value))} />
+          <span className="empirical-share">{total > 0 ? `${Math.round((weightOf(i) / total) * 100)}%` : '—'}</span>
+          <button
+            className="icon-btn btn danger small"
+            title="Remove row"
+            onClick={() => removeRow(i)}
+            disabled={values.length <= 1}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      <button className="btn small ghost" style={{ marginTop: 6 }} onClick={addRow}>
+        + Add value
+      </button>
     </div>
   )
 }
