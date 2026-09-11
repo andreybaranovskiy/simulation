@@ -1,0 +1,23 @@
+# Build output
+/bin/
+*.exe
+*.exe~
+
+# Runtime data (uploaded assets, run artifacts, generated PDFs)
+/data/
+
+# Local configuration and secrets
+config.yaml
+config.local.yaml
+.env
+
+# Frontend
+node_modules/
+web/dist/
+web/.vite/
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
