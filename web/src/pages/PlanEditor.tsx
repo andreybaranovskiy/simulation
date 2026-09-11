@@ -58,6 +58,12 @@ interface QueueSpec {
   capacity?: number
   maxWait?: number
 }
+interface Shift {
+  label?: string
+  start: number
+  end: number
+  days?: number[]
+}
 interface Resource {
   id: string
   label?: string
@@ -65,16 +71,23 @@ interface Resource {
   capacity?: number
   service?: Dist
   queue?: QueueSpec
+  shifts?: Shift[]
   [key: string]: unknown
 }
 type StepType = 'travel' | 'use' | 'seize' | 'release' | 'delay' | 'branch' | 'exit'
+interface Branch {
+  weight: number
+  label?: string
+  steps?: Step[]
+  [key: string]: unknown
+}
 interface Step {
   type: StepType
   label?: string
   to?: string
   resource?: string
   duration?: Dist
-  branches?: unknown[]
+  branches?: Branch[]
   [key: string]: unknown
 }
 interface Route {
@@ -853,11 +866,121 @@ function ResourceEditor({
         Service time
       </span>
       <DistEditor dist={resource.service ?? { distribution: 'constant', value: 60 }} onChange={(d) => onResource(resource.id, { service: d })} />
+
+      <ShiftsEditor
+        shifts={resource.shifts ?? []}
+        onChange={(shifts) => onResource(resource.id, { shifts: shifts.length ? shifts : undefined })}
+      />
+
       <button className="btn danger small" style={{ marginTop: 10 }} onClick={() => onRemove(resource.id)}>
         Remove resource
       </button>
     </div>
   )
+}
+
+/**
+ * Edits a resource's working hours. With no shifts a resource is always open;
+ * add one and it is closed outside it, which is how a night that stops the
+ * cranes, or a gate that shuts at six, gets into a model.
+ *
+ * Times are a time of day. Days are the days of a seven-day cycle counted from
+ * the start of the run, so "day 1" is the first day simulated; leaving them all
+ * off means every day.
+ */
+function ShiftsEditor({ shifts, onChange }: { shifts: Shift[]; onChange: (shifts: Shift[]) => void }) {
+  const update = (i: number, values: Partial<Shift>) =>
+    onChange(shifts.map((s, j) => (j === i ? { ...s, ...values } : s)))
+
+  return (
+    <div className="inspector-section" style={{ marginTop: 14, paddingTop: 12 }}>
+      <div className="row" style={{ marginBottom: 6 }}>
+        <span className="field-label" style={{ flex: 1, marginBottom: 0 }}>
+          Shifts
+        </span>
+        <button
+          className="btn small ghost"
+          onClick={() => onChange([...shifts, { start: 8 * 3600, end: 18 * 3600 }])}
+        >
+          + Add
+        </button>
+      </div>
+
+      {shifts.length === 0 && (
+        <p className="faint" style={{ fontSize: 11, margin: 0 }}>
+          Always open. Add a shift to close it outside working hours.
+        </p>
+      )}
+
+      {shifts.map((shift, i) => (
+        <div key={i} className="shift-card">
+          <div className="row" style={{ gap: 8 }}>
+            <Field label="From">
+              <input
+                type="time"
+                value={secondsToTime(shift.start)}
+                onChange={(e) => update(i, { start: timeToSeconds(e.target.value) })}
+              />
+            </Field>
+            <Field label="To">
+              <input
+                type="time"
+                value={secondsToTime(shift.end)}
+                onChange={(e) => update(i, { end: timeToSeconds(e.target.value) })}
+              />
+            </Field>
+            <button
+              className="icon-btn btn danger small"
+              style={{ alignSelf: 'end', marginBottom: 12 }}
+              title="Remove shift"
+              onClick={() => onChange(shifts.filter((_, j) => j !== i))}
+            >
+              ×
+            </button>
+          </div>
+          <DayToggles
+            days={shift.days ?? []}
+            onChange={(days) => update(i, { days: days.length ? days : undefined })}
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function DayToggles({ days, onChange }: { days: number[]; onChange: (days: number[]) => void }) {
+  const toggle = (d: number) =>
+    onChange(days.includes(d) ? days.filter((x) => x !== d) : [...days, d].sort((a, b) => a - b))
+
+  return (
+    <div className="day-toggles">
+      {[0, 1, 2, 3, 4, 5, 6].map((d) => (
+        <button
+          key={d}
+          className={`day-toggle ${days.length === 0 || days.includes(d) ? 'on' : ''}`}
+          title={days.length === 0 ? 'Every day' : `Day ${d + 1} of the week`}
+          onClick={() => toggle(d)}
+        >
+          {d + 1}
+        </button>
+      ))}
+      <span className="faint" style={{ fontSize: 10, marginLeft: 6 }}>
+        {days.length === 0 ? 'every day' : 'days of the run week'}
+      </span>
+    </div>
+  )
+}
+
+function secondsToTime(seconds: number): string {
+  const s = Math.max(0, Math.min(86399, Math.round(seconds)))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+function timeToSeconds(value: string): number {
+  const [h, m] = value.split(':').map(Number)
+  return (h || 0) * 3600 + (m || 0) * 60
 }
 
 /**
@@ -963,18 +1086,6 @@ function RoutesPanel({ routes, nodes, resources, onRoute }: InspectorProps) {
   }
 
   const route = routes.find((r) => r.id === openId) ?? routes[0]
-  const steps = route.steps ?? []
-
-  const setSteps = (next: Step[]) => onRoute(route.id, { steps: next })
-  const updateStep = (i: number, values: Partial<Step>) =>
-    setSteps(steps.map((s, j) => (j === i ? { ...s, ...values } : s)))
-  const move = (i: number, dir: -1 | 1) => {
-    const j = i + dir
-    if (j < 0 || j >= steps.length) return
-    const next = steps.slice()
-    ;[next[i], next[j]] = [next[j], next[i]]
-    setSteps(next)
-  }
 
   return (
     <>
@@ -988,81 +1099,192 @@ function RoutesPanel({ routes, nodes, resources, onRoute }: InspectorProps) {
         </select>
       </Field>
 
-      <div className="step-list">
-        {steps.map((step, i) => (
-          <div key={i} className="step-card">
-            <div className="row" style={{ gap: 6, alignItems: 'center' }}>
-              <span className="step-index">{i + 1}</span>
-              <select
-                value={step.type}
-                onChange={(e) => updateStep(i, { type: e.target.value as StepType })}
-                style={{ flex: 1 }}
-              >
-                <option value="travel">Travel to</option>
-                <option value="use">Use resource</option>
-                <option value="delay">Wait</option>
-                <option value="seize">Seize resource</option>
-                <option value="release">Release resource</option>
-                <option value="branch">Branch</option>
-                <option value="exit">Exit</option>
-              </select>
-              <button className="icon-btn btn ghost small" title="Move up" onClick={() => move(i, -1)}>
-                ↑
-              </button>
-              <button className="icon-btn btn ghost small" title="Move down" onClick={() => move(i, 1)}>
-                ↓
-              </button>
-              <button className="icon-btn btn danger small" title="Remove step" onClick={() => setSteps(steps.filter((_, j) => j !== i))}>
-                ×
-              </button>
-            </div>
+      <StepList
+        steps={route.steps ?? []}
+        onChange={(steps) => onRoute(route.id, { steps })}
+        nodes={nodes}
+        resources={resources}
+        depth={0}
+      />
+    </>
+  )
+}
 
-            {step.type === 'travel' && (
-              <select value={step.to ?? ''} onChange={(e) => updateStep(i, { to: e.target.value })} style={{ marginTop: 6 }}>
-                <option value="">Choose a node…</option>
-                {nodes.map((n) => (
-                  <option key={n.id} value={n.id}>
-                    {n.label ?? n.id}
-                  </option>
-                ))}
-              </select>
-            )}
+// Bounds how deep the UI will build nested branches. The engine allows more,
+// but past this a branch inside a branch inside a branch stops being something
+// anyone can read in a side panel.
+const MAX_BRANCH_DEPTH = 3
 
-            {(step.type === 'use' || step.type === 'seize' || step.type === 'release') && (
-              <select value={step.resource ?? ''} onChange={(e) => updateStep(i, { resource: e.target.value })} style={{ marginTop: 6 }}>
-                <option value="">Choose a resource…</option>
-                {resources.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.label ?? r.id}
-                  </option>
-                ))}
-              </select>
-            )}
+/** An ordered list of route steps, rendered recursively so a branch's own
+ *  steps are edited the same way as the route's. */
+function StepList({
+  steps,
+  onChange,
+  nodes,
+  resources,
+  depth,
+}: {
+  steps: Step[]
+  onChange: (steps: Step[]) => void
+  nodes: Node[]
+  resources: Resource[]
+  depth: number
+}) {
+  const setStep = (i: number, values: Partial<Step>) =>
+    onChange(steps.map((s, j) => (j === i ? { ...s, ...values } : s)))
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir
+    if (j < 0 || j >= steps.length) return
+    const next = steps.slice()
+    ;[next[i], next[j]] = [next[j], next[i]]
+    onChange(next)
+  }
 
-            {step.type === 'delay' && (
-              <div style={{ marginTop: 6 }}>
-                <DistEditor dist={step.duration ?? { distribution: 'constant', value: 60 }} onChange={(d) => updateStep(i, { duration: d })} />
-              </div>
-            )}
-
-            {step.type === 'branch' && (
-              <p className="faint" style={{ fontSize: 11, marginTop: 6 }}>
-                {(step.branches?.length ?? 0)} branches. Branch weights are kept as they are; edit
-                them in the model definition.
-              </p>
-            )}
+  return (
+    <div className="step-list">
+      {steps.map((step, i) => (
+        <div key={i} className="step-card">
+          <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+            <span className="step-index">{i + 1}</span>
+            <select value={step.type} onChange={(e) => setStep(i, { type: e.target.value as StepType })} style={{ flex: 1 }}>
+              <option value="travel">Travel to</option>
+              <option value="use">Use resource</option>
+              <option value="delay">Wait</option>
+              <option value="seize">Seize resource</option>
+              <option value="release">Release resource</option>
+              <option value="branch">Branch</option>
+              <option value="exit">Exit</option>
+            </select>
+            <button className="icon-btn btn ghost small" title="Move up" onClick={() => move(i, -1)}>
+              ↑
+            </button>
+            <button className="icon-btn btn ghost small" title="Move down" onClick={() => move(i, 1)}>
+              ↓
+            </button>
+            <button className="icon-btn btn danger small" title="Remove step" onClick={() => onChange(steps.filter((_, j) => j !== i))}>
+              ×
+            </button>
           </div>
-        ))}
-      </div>
 
-      <button
-        className="btn small ghost"
-        style={{ marginTop: 10 }}
-        onClick={() => setSteps([...steps, { type: 'travel' }])}
-      >
+          {step.type === 'travel' && (
+            <select value={step.to ?? ''} onChange={(e) => setStep(i, { to: e.target.value })} style={{ marginTop: 6 }}>
+              <option value="">Choose a node…</option>
+              {nodes.map((n) => (
+                <option key={n.id} value={n.id}>
+                  {n.label ?? n.id}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {(step.type === 'use' || step.type === 'seize' || step.type === 'release') && (
+            <select value={step.resource ?? ''} onChange={(e) => setStep(i, { resource: e.target.value })} style={{ marginTop: 6 }}>
+              <option value="">Choose a resource…</option>
+              {resources.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.label ?? r.id}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {step.type === 'delay' && (
+            <div style={{ marginTop: 6 }}>
+              <DistEditor dist={step.duration ?? { distribution: 'constant', value: 60 }} onChange={(d) => setStep(i, { duration: d })} />
+            </div>
+          )}
+
+          {step.type === 'branch' && (
+            <BranchList
+              branches={step.branches ?? []}
+              onChange={(branches) => setStep(i, { branches })}
+              nodes={nodes}
+              resources={resources}
+              depth={depth}
+            />
+          )}
+        </div>
+      ))}
+
+      <button className="btn small ghost" style={{ marginTop: 8 }} onClick={() => onChange([...steps, { type: 'travel' }])}>
         + Add step
       </button>
-    </>
+    </div>
+  )
+}
+
+/**
+ * The alternatives of a branch step, each with a weight and its own steps.
+ *
+ * The weight is relative: a branch of weight 3 against a branch of weight 1 is
+ * taken three times as often. The share each takes is shown so a reader does
+ * not have to do the division in their head.
+ */
+function BranchList({
+  branches,
+  onChange,
+  nodes,
+  resources,
+  depth,
+}: {
+  branches: Branch[]
+  onChange: (branches: Branch[]) => void
+  nodes: Node[]
+  resources: Resource[]
+  depth: number
+}) {
+  const total = branches.reduce((sum, b) => sum + (b.weight || 0), 0)
+  const update = (i: number, values: Partial<Branch>) =>
+    onChange(branches.map((b, j) => (j === i ? { ...b, ...values } : b)))
+
+  return (
+    <div className="branch-list">
+      {branches.map((branch, i) => (
+        <div key={i} className="branch-card">
+          <div className="row" style={{ gap: 6, alignItems: 'flex-end' }}>
+            <Field label="Share">
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                value={branch.weight ?? 1}
+                onChange={(e) => update(i, { weight: Math.max(0, Number(e.target.value) || 0) })}
+              />
+            </Field>
+            <span className="branch-share">
+              {total > 0 ? `${Math.round(((branch.weight || 0) / total) * 100)}%` : '—'}
+            </span>
+            <input
+              className="branch-label"
+              placeholder="label"
+              value={branch.label ?? ''}
+              onChange={(e) => update(i, { label: e.target.value })}
+            />
+            <button className="icon-btn btn danger small" title="Remove branch" onClick={() => onChange(branches.filter((_, j) => j !== i))}>
+              ×
+            </button>
+          </div>
+
+          {depth < MAX_BRANCH_DEPTH ? (
+            <StepList
+              steps={branch.steps ?? []}
+              onChange={(steps) => update(i, { steps })}
+              nodes={nodes}
+              resources={resources}
+              depth={depth + 1}
+            />
+          ) : (
+            <p className="faint" style={{ fontSize: 11 }}>
+              {(branch.steps?.length ?? 0)} steps, nested too deep to edit here.
+            </p>
+          )}
+        </div>
+      ))}
+
+      <button className="btn small ghost" style={{ marginTop: 6 }} onClick={() => onChange([...branches, { weight: 1, steps: [] }])}>
+        + Add branch
+      </button>
+    </div>
   )
 }
 
