@@ -64,6 +64,10 @@ interface Shift {
   end: number
   days?: number[]
 }
+interface Failure {
+  uptime?: Dist
+  repair?: Dist
+}
 interface Resource {
   id: string
   label?: string
@@ -72,6 +76,7 @@ interface Resource {
   service?: Dist
   queue?: QueueSpec
   shifts?: Shift[]
+  failure?: Failure | null
   [key: string]: unknown
 }
 type StepType = 'travel' | 'use' | 'seize' | 'release' | 'delay' | 'branch' | 'exit'
@@ -1020,9 +1025,65 @@ function ResourceEditor({
         onChange={(shifts) => onResource(resource.id, { shifts: shifts.length ? shifts : undefined })}
       />
 
+      <FailureEditor
+        failure={resource.failure ?? null}
+        onChange={(failure) => onResource(resource.id, { failure: failure ?? null })}
+      />
+
       <button className="btn danger small" style={{ marginTop: 10 }} onClick={() => onRemove(resource.id)}>
         Remove resource
       </button>
+    </div>
+  )
+}
+
+/**
+ * Edits a resource's breakdowns. With none the resource never fails; turn it on
+ * and it works for an uptime, then is down for a repair, then works again — the
+ * unplanned downtime a real crane or gate has, which a plan that assumes
+ * everything runs forever quietly ignores.
+ *
+ * Both are distributions: an exponential uptime with an 8-hour mean is the
+ * memoryless failure a reliability figure usually describes, and the repair is
+ * how long it is out. The mean uptime has to be positive, or the resource would
+ * break the instant it started and never come back.
+ */
+function FailureEditor({ failure, onChange }: { failure: Failure | null; onChange: (failure: Failure | null) => void }) {
+  const on = failure != null
+
+  return (
+    <div className="inspector-section" style={{ marginTop: 14, paddingTop: 12 }}>
+      <label className="toggle-row" style={{ margin: 0 }}>
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={(e) =>
+            onChange(
+              e.target.checked
+                ? { uptime: { distribution: 'exponential', mean: 8 * 3600 }, repair: { distribution: 'exponential', mean: 1800 } }
+                : null,
+            )
+          }
+        />
+        <span>Breaks down</span>
+      </label>
+
+      {on && failure && (
+        <div style={{ marginTop: 8 }}>
+          <span className="field-label">Time between failures</span>
+          <DistEditor
+            dist={failure.uptime ?? { distribution: 'exponential', mean: 8 * 3600 }}
+            onChange={(d) => onChange({ ...failure, uptime: d })}
+          />
+          <span className="field-label" style={{ marginTop: 8 }}>
+            Repair time
+          </span>
+          <DistEditor
+            dist={failure.repair ?? { distribution: 'exponential', mean: 1800 }}
+            onChange={(d) => onChange({ ...failure, repair: d })}
+          />
+        </div>
+      )}
     </div>
   )
 }
