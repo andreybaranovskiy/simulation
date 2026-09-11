@@ -1,0 +1,91 @@
+# Production configuration template for the simulation platform.
+#
+# Copy this to the install directory as config.yaml and edit the marked values.
+# Secrets do not belong in this file: set the database password and the cookie
+# key through the environment (the service installer reads them from there), so
+# a file IIS can reach never holds them.
+#
+# Every value here can also be overridden with an environment variable named
+# SIM_<SECTION>_<KEY>, e.g. SIM_DB_PASSWORD. See the README.
+
+server:
+  # simserver listens on loopback only; IIS reverse-proxies the public site to
+  # it. Nothing but IIS should be able to reach this port.
+  addr: "127.0.0.1:8080"
+  # The public origin, used for absolute links and to load the print routes
+  # when exporting a PDF. Set it to the site's real HTTPS URL.
+  base_url: "https://sim.example.com"          # EDIT
+  web_root: "web"
+  # IIS terminates TLS and forwards X-Forwarded-For and X-Forwarded-Proto.
+  # Only turn this on because IIS, which you control, sits in front.
+  trust_proxy_headers: true
+  read_timeout: 30s
+  write_timeout: 0s          # 0 so the run-progress event stream is not cut off
+  idle_timeout: 120s
+  shutdown_timeout: 30s
+
+database:
+  host: "127.0.0.1"
+  port: 3306
+  name: "simulation"
+  user: "simulation"
+  password: ""               # set SIM_DB_PASSWORD in the environment instead
+  auto_migrate: true         # apply pending migrations at startup
+  max_open_conns: 25
+  max_idle_conns: 10
+  conn_max_lifetime: 30m
+
+storage:
+  # Assets, run artifacts and generated PDFs live here. Put it on a volume with
+  # room: run artifacts are the large thing, not the database.
+  data_dir: "C:/simulation/data"               # EDIT
+  max_upload_bytes: 1073741824                  # 1 GiB; keep web.config in step
+  project_quota_bytes: 0                        # 0 means no per-project cap
+
+auth:
+  cookie_name: "sim_session"
+  session_ttl: 336h          # 14 days
+  secure_cookies: true       # the site is HTTPS, so the cookie must be Secure
+  bcrypt_cost: 12
+  # Leave registration closed on a shared install; add users from the admin
+  # area instead.
+  allow_registration: false
+  # The first administrator, created only while the users table is empty. Set
+  # the password through SIM_BOOTSTRAP_ADMIN_PASSWORD, not here, and remove the
+  # email once the account exists.
+  bootstrap_admin_email: "admin@example.com"    # EDIT
+  bootstrap_admin_password: ""                  # set SIM_BOOTSTRAP_ADMIN_PASSWORD
+
+engine:
+  # simrunner sits next to simserver, so this can stay empty.
+  runner_path: ""
+  # One simulation process per core is a reasonable default; each run is its
+  # own process.
+  max_concurrent_runs: 4
+  run_timeout: 30m
+  # Cap a single run's memory so one runaway model cannot take the server down
+  # with it. 2 GiB here.
+  run_memory_limit_bytes: 2147483648
+
+report:
+  # Empty autodetects the Edge that ships with Windows Server. Set a full path
+  # only to override it.
+  browser_path: ""
+  timeout: 3m
+
+# Uploaded Go models compile and run user-supplied code on the server. This is
+# off, and it should stay off unless you have read deploy/iis/SECURITY.md and
+# accepted what it describes. Even on, only administrators and accounts you
+# grant the permission to can upload.
+plugins:
+  enabled: false
+  go_toolchain: "go"         # must be on the service account's PATH when enabled
+  build_timeout: 2m
+  build_user: ""             # optional low-privilege account to build and run as
+
+log:
+  level: "info"
+  format: "json"
+  # A service has no console, so logs must go to a file. Point this somewhere
+  # the service account can write.
+  file: "C:/simulation/logs/simserver.log"      # EDIT

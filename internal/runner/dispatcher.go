@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -23,6 +24,8 @@ import (
 	"github.com/andreybaranovskiy/simulation/internal/engine/spec"
 	"github.com/andreybaranovskiy/simulation/internal/engine/templates"
 	"github.com/andreybaranovskiy/simulation/internal/model"
+	"github.com/andreybaranovskiy/simulation/internal/blobstore"
+	"github.com/andreybaranovskiy/simulation/internal/engine/plugin"
 	"github.com/andreybaranovskiy/simulation/internal/runstore"
 	"github.com/andreybaranovskiy/simulation/internal/store"
 )
@@ -38,6 +41,12 @@ type Dispatcher struct {
 	// runnerPath is the simrunner executable.
 	runnerPath string
 
+	// blobs opens uploaded assets, needed to read an uploaded Go model's
+	// source. plugins compiles and runs those models; it is nil unless the
+	// feature is enabled, which is how the gate stays impossible to forget.
+	blobs   *blobstore.Store
+	plugins *plugin.Compiler
+
 	// slots bounds how many simulations run at once.
 	slots chan struct{}
 
@@ -52,7 +61,7 @@ type Dispatcher struct {
 	wg   sync.WaitGroup
 }
 
-func New(cfg config.Config, st *store.Store, log *slog.Logger) (*Dispatcher, error) {
+func New(cfg config.Config, st *store.Store, blobs *blobstore.Store, log *slog.Logger) (*Dispatcher, error) {
 	runnerPath, err := resolveRunnerPath(cfg.Engine.RunnerPath)
 	if err != nil {
 		return nil, err
@@ -64,14 +73,34 @@ func New(cfg config.Config, st *store.Store, log *slog.Logger) (*Dispatcher, err
 		log:        log,
 		dataDir:    cfg.Storage.DataDir,
 		runnerPath: runnerPath,
+		blobs:      blobs,
 		slots:      make(chan struct{}, cfg.Engine.MaxConcurrentRuns),
 		active:     make(map[string]context.CancelFunc),
 		events:     NewBroker(),
 		wake:       make(chan struct{}, 1),
 	}
 
+	// The plugin compiler is built only when the feature is on. When it stays
+	// nil, an uploaded-Go model cannot run, and a misconfiguration surfaces
+	// here at startup rather than on the first attempt to run one.
+	if cfg.Plugins.Enabled {
+		compiler, err := plugin.New(plugin.Options{
+			GoTool:           cfg.Plugins.GoToolchain,
+			CacheDir:         filepath.Join(cfg.Storage.DataDir, "plugins"),
+			BuildTimeout:     cfg.Plugins.BuildTimeout,
+			MemoryLimitBytes: cfg.Engine.RunMemoryLimitBytes,
+			Log:              log,
+		})
+		if err != nil {
+			log.Warn("uploaded Go models are enabled but unavailable", "error", err)
+		} else {
+			d.plugins = compiler
+		}
+	}
+
 	log.Info("run dispatcher ready",
-		"runner", runnerPath, "concurrency", cfg.Engine.MaxConcurrentRuns)
+		"runner", runnerPath, "concurrency", cfg.Engine.MaxConcurrentRuns,
+		"go_upload", d.plugins != nil)
 	return d, nil
 }
 
@@ -346,13 +375,74 @@ func (d *Dispatcher) resolveModel(ctx context.Context, scenario *model.Scenario,
 		return &invocation{specPath: path}, nil
 
 	case model.SourceGo:
-		return nil, fmt.Errorf("running uploaded Go models is not enabled in this build")
+		return d.resolveGoModel(ctx, m, params, runDir)
 
 	case model.SourceAnimation:
 		return nil, fmt.Errorf("an imported animation is played back, not run")
 	}
 
 	return nil, fmt.Errorf("unknown model source %q", m.Source)
+}
+
+// resolveGoModel compiles an uploaded Go model, runs it to produce a model
+// definition, and returns that definition for the trusted engine to run.
+//
+// The untrusted program only ever emits data: the spec it writes is parsed and
+// validated here, and only then written out for the runner, exactly as a
+// declarative model would be. Nothing the program does reaches the trace or the
+// artifacts except through a model definition this side has checked.
+func (d *Dispatcher) resolveGoModel(ctx context.Context, m *model.SimModel, params map[string]float64, runDir string) (*invocation, error) {
+	if d.plugins == nil {
+		return nil, fmt.Errorf("running uploaded Go models is disabled on this server")
+	}
+	if m.AssetID == nil || *m.AssetID == "" {
+		return nil, fmt.Errorf("the model has no uploaded source")
+	}
+
+	asset, err := d.store.Assets.ByID(ctx, *m.AssetID)
+	if err != nil {
+		return nil, fmt.Errorf("read the uploaded model: %w", err)
+	}
+
+	file, err := d.blobs.Open(asset.StoragePath)
+	if err != nil {
+		return nil, fmt.Errorf("open the uploaded model: %w", err)
+	}
+	source, err := io.ReadAll(file)
+	file.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read the uploaded model: %w", err)
+	}
+
+	exe, err := d.plugins.Compile(ctx, source)
+	if err != nil {
+		return nil, err
+	}
+
+	specJSON, err := d.plugins.Generate(ctx, exe, params)
+	if err != nil {
+		return nil, err
+	}
+
+	parsed, err := spec.Parse(specJSON)
+	if err != nil {
+		return nil, fmt.Errorf("the uploaded model produced an invalid definition: %w", err)
+	}
+	// A Go model may declare parameters of its own for the UI, and applying the
+	// scenario's values to them keeps its behaviour consistent with how the
+	// program already read them on stdin. Unknown parameters are not an error
+	// here: the program is free to consume a parameter without surfacing it.
+	parsed.ApplyParams(params)
+
+	data, err := parsed.Marshal()
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(runDir, "input-model.json")
+	if err := os.WriteFile(path, data, 0o640); err != nil {
+		return nil, fmt.Errorf("write the model for the runner: %w", err)
+	}
+	return &invocation{specPath: path}, nil
 }
 
 // saveKPIs mirrors a finished run's KPIs into the database.

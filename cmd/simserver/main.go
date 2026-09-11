@@ -34,13 +34,20 @@ import (
 var version = "dev"
 
 func main() {
-	if err := run(); err != nil {
+	// On Windows, when the service control manager started the process, hand
+	// off to the service handler; it runs the same server and translates SCM
+	// stop requests into a clean shutdown. Everywhere else, and when launched
+	// from a console, this returns false and the server runs in the foreground.
+	if runAsService() {
+		return
+	}
+	if err := run(nil); err != nil {
 		fmt.Fprintln(os.Stderr, "simserver:", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(extraStop <-chan struct{}) error {
 	var (
 		configPath  = flag.String("config", defaultConfigPath(), "path to config.yaml")
 		migrateOnly = flag.Bool("migrate", false, "apply database migrations and exit")
@@ -71,6 +78,19 @@ func run() error {
 	// running server, so Ctrl+C during a slow migration still exits cleanly.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// A service stop arrives on extraStop rather than as a signal, so bridge it
+	// into the same cancellation the console path uses. Then everything below
+	// shuts down one way regardless of how it was asked to.
+	if extraStop != nil {
+		go func() {
+			select {
+			case <-extraStop:
+				stop()
+			case <-ctx.Done():
+			}
+		}()
+	}
 
 	database, err := db.Open(ctx, cfg.Database)
 	if err != nil {
@@ -108,7 +128,7 @@ func run() error {
 	// A missing runner executable is not fatal. Everything except starting
 	// runs still works, and the run endpoints say so plainly, which is far
 	// more useful than refusing to start at all.
-	dispatcher, err := runner.New(cfg, st, log)
+	dispatcher, err := runner.New(cfg, st, blobs, log)
 	if err != nil {
 		log.Error("the simulation engine is unavailable", "error", err)
 	} else {
