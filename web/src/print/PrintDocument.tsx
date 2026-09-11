@@ -114,6 +114,19 @@ export function PrintDocument({
     document.title = title
   }, [title])
 
+  // Reports always render on the dark surface the charts are validated against,
+  // whatever theme the viewer chose, so an exported PDF looks the same for
+  // everyone and matches how the report was designed.
+  useEffect(() => {
+    const root = document.documentElement
+    const previous = root.getAttribute('data-theme')
+    root.setAttribute('data-theme', 'dark')
+    return () => {
+      if (previous) root.setAttribute('data-theme', previous)
+      else root.removeAttribute('data-theme')
+    }
+  }, [])
+
   // The value has to keep a stable identity: it is the dependency every
   // section's registration effect watches, and a fresh object each render would
   // make them all unregister and re-register on every state change, which is

@@ -3,6 +3,7 @@ import { EntityState, stateColors } from '@/api/types'
 import type { EntityAt } from './playback'
 import type { HeatmapRenderer } from './heatmap'
 import type { PathRenderer } from './paths'
+import { resolveForm, type Form } from './forms'
 
 /**
  * The top-down plan view.
@@ -496,7 +497,9 @@ export class Scene2D {
         ctx.save()
         ctx.translate(p.x, p.y)
         ctx.rotate(-e.heading)
-        ctx.fillRect(-trueWidth / 2, -trueLength / 2, trueWidth, trueLength)
+        // A top-down silhouette rather than a bare rectangle: a cab or a bow
+        // shows which way the thing faces, so a turn reads as a turn.
+        drawForm(ctx, resolveForm(info), trueWidth, trueLength)
         ctx.restore()
       } else {
         const radius = emphasised ? 5 : 3
@@ -583,4 +586,57 @@ function niceRound(value: number): number {
 
 function clamp(v: number, min: number, max: number) {
   return Math.min(max, Math.max(min, v))
+}
+
+/**
+ * Draws a top-down silhouette of an entity, centred at the origin with its
+ * length along the Y axis and its front toward -Y, which is the direction the
+ * caller has already rotated to face travel.
+ *
+ * The shapes are deliberately spare: at true scale on a wide plan these are
+ * only a few pixels, so a cab notch or a pointed bow is as much detail as reads.
+ */
+function drawForm(ctx: CanvasRenderingContext2D, form: Form, w: number, l: number) {
+  const hw = w / 2
+  const hl = l / 2
+
+  switch (form) {
+    case 'truck': {
+      // Body, then a narrower cab at the front so the heading is visible.
+      ctx.fillRect(-hw, -hl + l * 0.28, w, l * 0.72)
+      ctx.fillRect(-hw * 0.82, -hl, w * 0.82, l * 0.28)
+      return
+    }
+    case 'ship': {
+      // A hull with a pointed bow at the front (-Y).
+      ctx.beginPath()
+      ctx.moveTo(-hw, hl)
+      ctx.lineTo(hw, hl)
+      ctx.lineTo(hw, -hl + l * 0.32)
+      ctx.lineTo(0, -hl)
+      ctx.lineTo(-hw, -hl + l * 0.32)
+      ctx.closePath()
+      ctx.fill()
+      return
+    }
+    case 'agv': {
+      ctx.fillRect(-hw, -hl + l * 0.14, w, l * 0.86)
+      ctx.fillRect(-hw * 0.5, -hl, w * 0.5, l * 0.16)
+      return
+    }
+    case 'person': {
+      ctx.beginPath()
+      ctx.arc(0, 0, Math.max(hw, hl), 0, Math.PI * 2)
+      ctx.fill()
+      return
+    }
+    case 'container':
+    case 'box':
+    case 'gate':
+    case 'crane':
+    case 'cylinder':
+    case 'marker':
+    default:
+      ctx.fillRect(-hw, -hl, w, l)
+  }
 }

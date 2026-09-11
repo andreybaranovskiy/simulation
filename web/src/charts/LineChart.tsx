@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 
-import { CHROME, SERIES, formatNumber, niceMax } from './tokens'
+import { SERIES, formatNumber, niceMax } from './tokens'
 import { formatSimTime } from '@/state/timeline'
 
 export interface Series {
@@ -106,7 +106,7 @@ export function LineChart({
               ((warmUpUntil - startTime) / (buckets * bucketSeconds)) * plotWidth,
             )}
             height={plotHeight}
-            fill={CHROME.grid}
+            style={{ fill: 'var(--chart-grid)' }}
             opacity={0.5}
           />
         )}
@@ -118,7 +118,7 @@ export function LineChart({
               x2={width - padding.right}
               y1={y(tick)}
               y2={y(tick)}
-              stroke={CHROME.grid}
+              style={{ stroke: 'var(--chart-grid)' }}
               strokeWidth={1}
             />
             <text x={padding.left - 8} y={y(tick) + 4} textAnchor="end" className="chart-tick">
@@ -185,7 +185,7 @@ export function LineChart({
               x2={x(hoverIndex)}
               y1={padding.top}
               y2={padding.top + plotHeight}
-              stroke={CHROME.axis}
+              style={{ stroke: 'var(--chart-axis)' }}
               strokeWidth={1}
             />
             {series.map((s, i) => {
@@ -201,7 +201,7 @@ export function LineChart({
                   fill={color}
                   // The surface ring keeps the dot legible where it crosses a
                   // line or another dot.
-                  stroke="#0f1430"
+                  style={{ stroke: 'var(--chart-surface)' }}
                   strokeWidth={2}
                 />
               )
@@ -214,7 +214,7 @@ export function LineChart({
           x2={width - padding.right}
           y1={padding.top + plotHeight}
           y2={padding.top + plotHeight}
-          stroke={CHROME.axis}
+          style={{ stroke: 'var(--chart-axis)' }}
           strokeWidth={1}
         />
 

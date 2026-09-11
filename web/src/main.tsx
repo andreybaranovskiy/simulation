@@ -4,9 +4,13 @@ import { BrowserRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { App } from './App'
+import { initTheme } from './state/theme'
 import { ApiError } from './api/client'
 import './styles/app.css'
 import './styles/charts.css'
+
+// Set the theme before the first paint so the app never flashes the wrong one.
+initTheme()
 
 const queryClient = new QueryClient({
   defaultOptions: {

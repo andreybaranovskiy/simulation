@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { CHROME, SERIES, niceMax } from './tokens'
+import { SERIES, niceMax } from './tokens'
 
 export interface DistributionRow {
   id: string
@@ -74,7 +74,7 @@ export function DistributionChart({
             <line
               x1={x(tick)} x2={x(tick)}
               y1={padding.top} y2={padding.top + rows.length * rowHeight}
-              stroke={CHROME.grid} strokeWidth={1}
+              style={{ stroke: 'var(--chart-grid)' }} strokeWidth={1}
             />
             <text x={x(tick)} y={height - 6} textAnchor="middle" className="chart-tick">
               {format(tick)}
@@ -130,7 +130,7 @@ export function DistributionChart({
               <line
                 x1={x(row.mean)} x2={x(row.mean)}
                 y1={y - 9} y2={y + 9}
-                stroke="#0f1430" strokeWidth={4}
+                style={{ stroke: 'var(--chart-surface)' }} strokeWidth={4}
               />
               <line
                 x1={x(row.mean)} x2={x(row.mean)}

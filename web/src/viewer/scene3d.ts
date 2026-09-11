@@ -3,6 +3,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 
+import { formGeometry, resolveForm } from './forms'
+
 import type { ClassInfo, Manifest, SitePlan } from '@/api/types'
 import { EntityState, stateColors } from '@/api/types'
 import type { EntityAt } from './playback'
@@ -83,6 +85,11 @@ export class Scene3D {
    *  slots are reused every frame as entities come and go. Without this table a
    *  click would select whichever entity happened to be drawn in that slot. */
   private slotEntities: number[][] = []
+
+  /** The heading each entity is currently drawn at, eased toward its true
+   *  heading so a turn reads as the object rotating rather than the box
+   *  flipping between two axis-aligned directions in one frame. */
+  private renderHeading = new Map<number, number>()
 
   private followId: number | null = null
   private disposed = false
@@ -291,7 +298,7 @@ export class Scene3D {
       }
 
       this.position.set(x, y + (height * boost) / 2, z)
-      this.quaternion.setFromAxisAngle(this.up, entity.heading)
+      this.quaternion.setFromAxisAngle(this.up, this.smoothHeading(entity))
       this.scale.set(boost, boost, boost)
 
       this.matrix.compose(this.position, this.quaternion, this.scale)
@@ -317,6 +324,37 @@ export class Scene3D {
     }
 
     this.updateFollowCamera()
+  }
+
+  /**
+   * Eases an entity's drawn heading toward its true one, and holds it steady
+   * while the entity is stopped.
+   *
+   * A stopped entity reports no heading, so without the hold it would snap to
+   * facing forward the moment it halts. While moving, the drawn heading turns a
+   * fraction of the way to the target each frame, along the shorter arc, so a
+   * corner is taken rather than jumped.
+   */
+  private smoothHeading(entity: EntityAt): number {
+    const previous = this.renderHeading.get(entity.id)
+
+    if (!entity.moving && previous !== undefined) {
+      return previous
+    }
+    if (previous === undefined) {
+      this.renderHeading.set(entity.id, entity.heading)
+      return entity.heading
+    }
+
+    // The shortest signed angle from previous to target, so a turn across the
+    // ±π seam goes the short way instead of spinning almost all the way round.
+    let delta = entity.heading - previous
+    while (delta > Math.PI) delta -= 2 * Math.PI
+    while (delta < -Math.PI) delta += 2 * Math.PI
+
+    const next = previous + delta * 0.2
+    this.renderHeading.set(entity.id, next)
+    return next
   }
 
   private applyColor(
@@ -514,6 +552,7 @@ export class Scene3D {
     this.instanced = []
     this.counts = []
     this.slotEntities = []
+    this.renderHeading.clear()
   }
 
   dispose() {
@@ -537,15 +576,10 @@ function geometryFor(info: ClassInfo): THREE.BufferGeometry {
   const width = Math.max(info.width || 2, 0.2)
   const height = Math.max(info.height || 2, 0.2)
 
-  switch (info.shape) {
-    case 'cylinder':
-      return new THREE.CylinderGeometry(width / 2, width / 2, height, 10)
-    case 'marker':
-      return new THREE.SphereGeometry(Math.max(width, height) / 2, 10, 8)
-    default:
-      // The box is oriented so its length runs along the direction of travel.
-      return new THREE.BoxGeometry(width, height, length)
-  }
+  // The form is chosen from the class's shape, or inferred from its label, and
+  // is always built with its length along +Z so the renderer can turn it to
+  // face travel.
+  return formGeometry(resolveForm(info), length, width, height)
 }
 
 /** Scales an object so its longest axis matches a target size, and sets it on

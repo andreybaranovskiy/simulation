@@ -9,6 +9,7 @@ import { RunViewer } from '@/pages/RunViewer'
 import { Compare } from '@/pages/Compare'
 import { Reports } from '@/pages/Reports'
 import { ReportPrint } from '@/print/ReportPrint'
+import { useTheme } from '@/state/theme'
 
 export function App() {
   return (
@@ -124,10 +125,27 @@ function TopBar() {
         )}
       </span>
 
+      <ThemeToggle />
+
       <button className="btn ghost small" onClick={() => void signOut()}>
         Sign out
       </button>
     </header>
+  )
+}
+
+function ThemeToggle() {
+  const [theme, toggle] = useTheme()
+  const dark = theme === 'dark'
+  return (
+    <button
+      className="btn ghost small icon-btn"
+      onClick={toggle}
+      title={dark ? 'Switch to the light theme' : 'Switch to the dark theme'}
+      aria-label={dark ? 'Switch to the light theme' : 'Switch to the dark theme'}
+    >
+      {dark ? '☀' : '☽'}
+    </button>
   )
 }
 
